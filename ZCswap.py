@@ -78,7 +78,9 @@ class SabreSwap(TransformationPass):
     `arXiv:1809.02573 <https://arxiv.org/pdf/1809.02573.pdf>`_
     """
 
-    def __init__(self, coupling_map, heuristic="basic", seed=None, fake_run=False, trials=None):
+    def __init__(
+        self, coupling_map, heuristic="basic", seed=None, fake_run=False, trials=None
+    ):
         r"""SabreSwap initializer.
 
         Args:
@@ -228,7 +230,8 @@ class SabreSwap(TransformationPass):
         current_layout = Layout.generate_trivial_layout(canonical_register)
         self._qubit_indices = {bit: idx for idx, bit in enumerate(canonical_register)}
         layout_mapping = {
-            self._qubit_indices[k]: v for k, v in current_layout.get_virtual_bits().items()
+            self._qubit_indices[k]: v
+            for k, v in current_layout.get_virtual_bits().items()
         }
         layout = NLayout(layout_mapping, len(dag.qubits), self.coupling_map.size())
         original_layout = layout.copy()
@@ -267,7 +270,6 @@ class SabreSwap(TransformationPass):
         return dag
 
 
-
 def _build_sabre_dag(dag, num_physical_qubits, qubit_indices):
     from qiskit.converters import circuit_to_dag
 
@@ -303,7 +305,10 @@ def _build_sabre_dag(dag, num_physical_qubits, qubit_indices):
                 node_blocks[node._node_id] = [
                     recurse(
                         block,
-                        {inner: wire_map[outer] for inner, outer in zip(block.qubits, node.qargs)},
+                        {
+                            inner: wire_map[outer]
+                            for inner, outer in zip(block.qubits, node.qargs)
+                        },
                     )
                     for block in node.op.blocks
                 ]
@@ -314,7 +319,9 @@ def _build_sabre_dag(dag, num_physical_qubits, qubit_indices):
                     cargs,
                 )
             )
-        return SabreDAG(num_physical_qubits, block_dag.num_clbits(), dag_list, node_blocks)
+        return SabreDAG(
+            num_physical_qubits, block_dag.num_clbits(), dag_list, node_blocks
+        )
 
     return process_dag(dag, qubit_indices), circuit_to_dag_dict
 
@@ -416,7 +423,9 @@ def _apply_sabre_result(
                 qubit_indices_inner,
             )
 
-    apply_inner(mapped_dag, initial_layout, qubit_indices, sabre_result, root_dag._multi_graph)
+    apply_inner(
+        mapped_dag, initial_layout, qubit_indices, sabre_result, root_dag._multi_graph
+    )
 
 
 def process_swaps(
@@ -454,9 +463,13 @@ def process_swaps(
             current_layout.swap_logical(*swap)
 
 
-def apply_gate(mapped_dag, node, current_layout, canonical_register, fake_run, qubit_indices):
+def apply_gate(
+    mapped_dag, node, current_layout, canonical_register, fake_run, qubit_indices
+):
     """Apply gate given the current layout."""
-    new_node = transform_gate_for_layout(node, current_layout, canonical_register, qubit_indices)
+    new_node = transform_gate_for_layout(
+        node, current_layout, canonical_register, qubit_indices
+    )
     if fake_run:
         return new_node
     return mapped_dag.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
