@@ -3,7 +3,7 @@
 
 # Main research imports
 from ZCswap import SabreSwap
-from helpers import dag_drawer
+from helpers import dag_drawer, draw_circuit
 from qiskit.transpiler.passes import SabreLayout
 import ag
 
@@ -38,7 +38,7 @@ def main() -> None:
     qasm_import = circuit_in.from_qasm_file(benchmark_path + bench_file)
     # qasm_import.draw(output="mpl", filename="qasm.png")
     circuit_in.compose(qasm_import, inplace=True)
-    circuit_in.draw(output="mpl", filename="final.png")
+    # circuit_in.draw(output="mpl", filename="final.png")
 
     initial_depth = circuit_in.depth()
     initial_dag = circuit_to_dag(circuit_in)
@@ -55,9 +55,10 @@ def main() -> None:
     inital_mapping = mapped_circuit.layout.final_layout
 
     print(f"Inititial mapping: {inital_mapping}")
-    mapped_circuit.draw(output="mpl", filename="mapped.png")
+    # mapped_circuit.draw(output="mpl", filename="mapped.png")
 
     ouput_dag = sabre_routing_pass.run(dag=initial_dag)
+    draw_circuit(dag_to_circuit(ouput_dag), "output")
 
 
 if __name__ == "__main__":
