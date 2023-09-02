@@ -30,7 +30,7 @@ def main() -> None:
 
     # Select a benchmark/test circuit
     benchmark_path = "./benchmarks/6qbt/"
-    bench_file = os.listdir(benchmark_path)[0]
+    bench_file = os.listdir(benchmark_path)[2]
 
     # Initialise the circuit and registers
     register = QuantumRegister(6, "q")
@@ -38,7 +38,7 @@ def main() -> None:
     qasm_import = circuit_in.from_qasm_file(benchmark_path + bench_file)
     # qasm_import.draw(output="mpl", filename="qasm.png")
     circuit_in.compose(qasm_import, inplace=True)
-    # circuit_in.draw(output="mpl", filename="final.png")
+    draw_circuit(circuit_in, "initial")
 
     initial_depth = circuit_in.depth()
     initial_dag = circuit_to_dag(circuit_in)

@@ -15,4 +15,4 @@ def draw_dag(*args, **kwargs):
 
 
 def draw_circuit(circuit: QuantumCircuit, filename: str) -> None:
-    circuit.draw(output="mpl", filename=filename + ".png")
+    circuit.draw(output="mpl", filename="debug/" + filename + ".png")

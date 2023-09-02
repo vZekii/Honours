@@ -177,7 +177,9 @@ class SabreSwap(TransformationPass):
 
         # Preserve input DAG's name, regs, wire_map, etc. but replace the graph.
         mapped_dag = None
-        if not self.fake_run:
+        if (
+            not self.fake_run
+        ):  # zc doesn't update the map on a layout pass due to fake run
             mapped_dag = dag.copy_empty_like()
 
         canonical_register = dag.qregs["q"]
@@ -193,6 +195,7 @@ class SabreSwap(TransformationPass):
         self.required_predecessors = self._build_required_predecessors(dag)
         num_search_steps = 0
         front_layer = dag.front_layer()
+        print("Front layer:", front_layer)
 
         while front_layer:
             execute_gate_list = []

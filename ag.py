@@ -12,7 +12,7 @@ def output_architecture(func):
 
         # nx.draw(g, with_labels=True, font_weight='bold')
         nx.draw_kamada_kawai(g, with_labels=True, font_weight="bold")
-        # plt.savefig("architecture.png")
+        plt.savefig("debug/architecture.png")
         return g
 
     return wrapper
