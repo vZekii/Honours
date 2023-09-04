@@ -24,13 +24,13 @@ def main() -> None:
 
     # Setup the routing pass based on the architecture coupling graph
     AG_qiskit = CouplingMap(couplinglist=ag.qgrid(2, 3).edges())
-    sabre_routing_pass = SabreSwap(coupling_map=AG_qiskit, heuristic="basic")
-    sabre_layout_pass = SabreLayout(coupling_map=AG_qiskit)
+    sabre_routing_pass = SabreSwap(coupling_map=AG_qiskit, heuristic="lookahead")
+    sabre_layout_pass = SabreLayout(coupling_map=AG_qiskit, skip_routing=True)
     pm = PassManager([sabre_layout_pass, ApplyLayout()])
 
     # Select a benchmark/test circuit
     benchmark_path = "./benchmarks/6qbt/"
-    bench_file = os.listdir(benchmark_path)[2]
+    bench_file = os.listdir(benchmark_path)[6]
 
     # Initialise the circuit and registers
     register = QuantumRegister(6, "q")
@@ -55,7 +55,7 @@ def main() -> None:
     inital_mapping = mapped_circuit.layout.final_layout
 
     print(f"Inititial mapping: {inital_mapping}")
-    # mapped_circuit.draw(output="mpl", filename="mapped.png")
+    draw_circuit(mapped_circuit, "mapped")
 
     ouput_dag = sabre_routing_pass.run(dag=initial_dag)
     draw_circuit(dag_to_circuit(ouput_dag), "output")

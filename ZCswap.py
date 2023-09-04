@@ -210,13 +210,22 @@ class SabreSwap(TransformationPass):
                     if self.coupling_map.graph.has_edge(
                         current_layout._v2p[v0], current_layout._v2p[v1]
                     ):
-                        execute_gate_list.append(node)
+                        execute_gate_list.append(
+                            node
+                        )  # * if the qubits are connected, we can execute it straight away
                     else:
-                        new_front_layer.append(node)
-                else:  # Single-qubit gates as well as barriers are free
-                    execute_gate_list.append(node)
-            front_layer = new_front_layer
+                        new_front_layer.append(
+                            node
+                        )  # * otherwise, we add it as a not executeable gate, and the new front layer becomes the list of these unexecutables
 
+                else:  # * Execute any single qubit gates straight away
+                    execute_gate_list.append(node)
+                    # TODO: This may allow us to look at the execute_gate_list for potential commutativity rules
+
+            front_layer = new_front_layer
+            # * Finish executing as many as possible, and override the front layer with the gates we can't execute
+
+            # ! the code below is new - and prevents the algorithm from getting stuck - only works on lists where nothing is executable
             if (
                 not execute_gate_list
                 and len(ops_since_progress) > max_iterations_without_progress
@@ -231,6 +240,7 @@ class SabreSwap(TransformationPass):
                 )
                 continue
 
+            # * We can now apply the gates in the execute list
             if execute_gate_list:
                 for node in execute_gate_list:
                     self._apply_gate(
@@ -471,6 +481,9 @@ class SabreSwap(TransformationPass):
 
 def _transform_gate_for_layout(op_node, layout, device_qreg):
     """Return node implementing a virtual op on given layout."""
+    print("Transforming gate for layout")
+    print(f"Inputs: {op_node}, {layout}, {device_qreg}")
+    print(f"qargs: {op_node.qargs}")
     mapped_op_node = copy(op_node)
     mapped_op_node.qargs = tuple(device_qreg[layout._v2p[x]] for x in op_node.qargs)
     return mapped_op_node
