@@ -37,37 +37,6 @@ DECAY_RESET_INTERVAL = 5  # How often to reset all decay rates to 1.
 
 
 class SabreSwap(TransformationPass):
-    r"""Map input circuit onto a backend topology via insertion of SWAPs.
-
-    Implementation of the SWAP-based heuristic search from the SABRE qubit
-    mapping paper [1] (Algorithm 1). The heuristic aims to minimize the number
-    of lossy SWAPs inserted and the depth of the circuit.
-
-    This algorithm starts from an initial layout of virtual qubits onto physical
-    qubits, and iterates over the circuit DAG until all gates are exhausted,
-    inserting SWAPs along the way. It only considers 2-qubit gates as only those
-    are germane for the mapping problem (it is assumed that 3+ qubit gates are
-    already decomposed).
-
-    In each iteration, it will first check if there are any gates in the
-    ``front_layer`` that can be directly applied. If so, it will apply them and
-    remove them from ``front_layer``, and replenish that layer with new gates
-    if possible. Otherwise, it will try to search for SWAPs, insert the SWAPs,
-    and update the mapping.
-
-    The search for SWAPs is restricted, in the sense that we only consider
-    physical qubits in the neighborhood of those qubits involved in
-    ``front_layer``. These give rise to a ``swap_candidate_list`` which is
-    scored according to some heuristic cost function. The best SWAP is
-    implemented and ``current_layout`` updated.
-
-    **References:**
-
-    [1] Li, Gushu, Yufei Ding, and Yuan Xie. "Tackling the qubit mapping problem
-    for NISQ-era quantum devices." ASPLOS 2019.
-    `arXiv:1809.02573 <https://arxiv.org/pdf/1809.02573.pdf>`_
-    """
-
     def __init__(
         self,
         coupling_map,
@@ -75,60 +44,6 @@ class SabreSwap(TransformationPass):
         seed=None,
         fake_run=False,
     ):
-        r"""SabreSwap initializer.
-
-        Args:
-            coupling_map (CouplingMap): CouplingMap of the target backend.
-            heuristic (str): The type of heuristic to use when deciding best
-                swap strategy ('basic' or 'lookahead' or 'decay').
-            seed (int): random seed used to tie-break among candidate swaps.
-            fake_run (bool): if true, it only pretend to do routing, i.e., no
-                swap is effectively added.
-
-        Additional Information:
-
-            The search space of possible SWAPs on physical qubits is explored
-            by assigning a score to the layout that would result from each SWAP.
-            The goodness of a layout is evaluated based on how viable it makes
-            the remaining virtual gates that must be applied. A few heuristic
-            cost functions are supported
-
-            - 'basic':
-
-            The sum of distances for corresponding physical qubits of
-            interacting virtual qubits in the front_layer.
-
-            .. math::
-
-                H_{basic} = \sum_{gate \in F} D[\pi(gate.q_1)][\pi(gate.q2)]
-
-            - 'lookahead':
-
-            This is the sum of two costs: first is the same as the basic cost.
-            Second is the basic cost but now evaluated for the
-            extended set as well (i.e. :math:`|E|` number of upcoming successors to gates in
-            front_layer F). This is weighted by some amount EXTENDED_SET_WEIGHT (W) to
-            signify that upcoming gates are less important that the front_layer.
-
-            .. math::
-
-                H_{decay}=\frac{1}{\left|{F}\right|}\sum_{gate \in F} D[\pi(gate.q_1)][\pi(gate.q2)]
-                    + W*\frac{1}{\left|{E}\right|} \sum_{gate \in E} D[\pi(gate.q_1)][\pi(gate.q2)]
-
-            - 'decay':
-
-            This is the same as 'lookahead', but the whole cost is multiplied by a
-            decay factor. This increases the cost if the SWAP that generated the
-            trial layout was recently used (i.e. it penalizes increase in depth).
-
-            .. math::
-
-                H_{decay} = max(decay(SWAP.q_1), decay(SWAP.q_2)) {
-                    \frac{1}{\left|{F}\right|} \sum_{gate \in F} D[\pi(gate.q_1)][\pi(gate.q2)]\\
-                    + W *\frac{1}{\left|{E}\right|} \sum_{gate \in E} D[\pi(gate.q_1)][\pi(gate.q2)]
-                    }
-        """
-
         super().__init__()
 
         # Assume bidirectional couplings, fixing gate direction is easy later.
@@ -177,9 +92,8 @@ class SabreSwap(TransformationPass):
 
         # Preserve input DAG's name, regs, wire_map, etc. but replace the graph.
         mapped_dag = None
-        if (
-            not self.fake_run
-        ):  # zc doesn't update the map on a layout pass due to fake run
+        if not self.fake_run:
+            # * zc doesn't update the map on a layout pass due to fake run
             mapped_dag = dag.copy_empty_like()
 
         canonical_register = dag.qregs["q"]
@@ -210,13 +124,11 @@ class SabreSwap(TransformationPass):
                     if self.coupling_map.graph.has_edge(
                         current_layout._v2p[v0], current_layout._v2p[v1]
                     ):
-                        execute_gate_list.append(
-                            node
-                        )  # * if the qubits are connected, we can execute it straight away
+                        execute_gate_list.append(node)
+                        # * if the qubits are connected, we can execute it straight away
                     else:
-                        new_front_layer.append(
-                            node
-                        )  # * otherwise, we add it as a not executeable gate, and the new front layer becomes the list of these unexecutables
+                        new_front_layer.append(node)
+                        # * otherwise, we add it as a not executeable gate, and the new front layer becomes the list of these unexecutables
 
                 else:  # * Execute any single qubit gates straight away
                     execute_gate_list.append(node)
@@ -326,6 +238,7 @@ class SabreSwap(TransformationPass):
         return dag
 
     def _apply_gate(self, mapped_dag, node, current_layout, canonical_register):
+        # * zc Applies the gate onto the current dag, after transforming the gate
         new_node = _transform_gate_for_layout(node, current_layout, canonical_register)
         if self.fake_run:
             return new_node
@@ -481,9 +394,9 @@ class SabreSwap(TransformationPass):
 
 def _transform_gate_for_layout(op_node, layout, device_qreg):
     """Return node implementing a virtual op on given layout."""
-    print("Transforming gate for layout")
-    print(f"Inputs: {op_node}, {layout}, {device_qreg}")
-    print(f"qargs: {op_node.qargs}")
+    # print("Transforming gate for layout")
+    # print(f"Inputs: {op_node}, {layout}, {device_qreg}")
+    # print(f"qargs: {op_node.qargs}")
     mapped_op_node = copy(op_node)
     mapped_op_node.qargs = tuple(device_qreg[layout._v2p[x]] for x in op_node.qargs)
     return mapped_op_node
