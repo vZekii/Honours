@@ -8,7 +8,12 @@ from qiskit.transpiler.passes import SabreLayout
 import ag
 
 # Required qiskit libraries and tools
-from qiskit.transpiler.passes import Decompose, ApplyLayout, CommutationAnalysis
+from qiskit.transpiler.passes import (
+    Decompose,
+    ApplyLayout,
+    CommutationAnalysis,
+    CommutativeCancellation,
+)
 from qiskit.transpiler import CouplingMap, PassManager
 from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.converters import circuit_to_dag, dag_to_circuit
@@ -58,11 +63,15 @@ def main() -> None:
 
     print(circuit_to_dag(mapped_circuit).properties())
 
-    property_set = {}
-    CommutationAnalysis()(mapped_circuit, property_set)
+    cancelled = CommutativeCancellation()(mapped_circuit)
+    draw_circuit(cancelled, "commutation_cancelling")
 
-    with open("commutation_pass_output.txt", "w") as f:
-        print(property_set["commutation_set"], file=f)
+    # property_set = {}
+    # CommutationAnalysis()(mapped_circuit, property_set)
+
+    # Collect resuls of the commutation pass
+    # with open("commutation_pass_output.txt", "w") as f:
+    #     print(property_set["commutation_set"], file=f)
 
     inital_mapping = mapped_circuit.layout.final_layout
     print(f"Inititial mapping: {inital_mapping}")
