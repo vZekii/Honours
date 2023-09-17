@@ -109,7 +109,12 @@ class SabreSwap(TransformationPass):
         self.required_predecessors = self._build_required_predecessors(dag)
         num_search_steps = 0
         front_layer = dag.front_layer()
-        print("Front layer:", front_layer)
+
+        # ---------
+
+        # gate_storage = {idx: [] for idx in [current_layout._v2p[quit] for qubit in dag.qubits]}
+
+        # ---------
 
         while front_layer:
             execute_gate_list = []

@@ -28,17 +28,18 @@ def main() -> None:
     """
 
     # Setup the routing pass based on the architecture coupling graph
-    AG_qiskit = CouplingMap(couplinglist=ag.qgrid(2, 3).edges())
+    AG_qiskit = CouplingMap(couplinglist=ag.qgrid(3, 2).edges())
     sabre_routing_pass = SabreSwap(coupling_map=AG_qiskit, heuristic="lookahead")
     sabre_layout_pass = SabreLayout(coupling_map=AG_qiskit, skip_routing=True)
     pm = PassManager([sabre_layout_pass, ApplyLayout()])
 
     # Select a benchmark/test circuit
-    benchmark_path = "./benchmarks/6qbt/"
-    bench_file = os.listdir(benchmark_path)[6]
+    benchmark_path = "./benchmarks/custom/"
+    # bench_file = os.listdir(benchmark_path)[6]
+    bench_file = os.listdir(benchmark_path)[2]
 
     # Initialise the circuit and registers
-    register = QuantumRegister(6, "q")
+    register = QuantumRegister(AG_qiskit.size(), "q")
     circuit_in = QuantumCircuit(register)
     qasm_import = circuit_in.from_qasm_file(benchmark_path + bench_file)
     # qasm_import.draw(output="mpl", filename="qasm.png")
@@ -48,7 +49,8 @@ def main() -> None:
     # get some initial info
     initial_depth = circuit_in.depth()
     initial_dag = circuit_to_dag(circuit_in)
-    # draw_dag(initial_dag, filename=f"debug/dag_in.png")
+    draw_dag(initial_dag, filename=f"debug/dag_in.png")
+    print("Runs:", initial_dag.collect_runs(["cx"]))
     initial_2q_gates = len(initial_dag.two_qubit_ops())
     initial_1q_gates = initial_dag.size() - initial_2q_gates
 
@@ -60,15 +62,16 @@ def main() -> None:
 
     # Run the Sabre layout and get the initial mapping
     mapped_circuit = pm.run(circuit_in)
+    mapped_dag = circuit_to_dag(mapped_circuit)
 
-    print(circuit_to_dag(mapped_circuit).properties())
+    print(mapped_dag.properties())
 
-    cancelled = CommutativeCancellation()(mapped_circuit)
-    draw_circuit(cancelled, "commutation_cancelling")
+    # Commutation cancelation attempt
+    # cancelled = CommutativeCancellation()(mapped_circuit)
+    # draw_circuit(cancelled, "commutation_cancelling")
 
     # property_set = {}
     # CommutationAnalysis()(mapped_circuit, property_set)
-
     # Collect resuls of the commutation pass
     # with open("commutation_pass_output.txt", "w") as f:
     #     print(property_set["commutation_set"], file=f)
@@ -78,9 +81,9 @@ def main() -> None:
     draw_circuit(mapped_circuit, "mapped")
 
     # Run the router and display the outcomes
-    ouput_dag = sabre_routing_pass.run(dag=initial_dag)
+    ouput_dag = sabre_routing_pass.run(dag=mapped_dag)
     draw_circuit(dag_to_circuit(ouput_dag), "output")
-    # draw_dag(ouput_dag, filename=f"debug/dag_out.png")
+    draw_dag(ouput_dag, filename=f"debug/dag_out.png")
 
     print(ouput_dag.properties())
 
