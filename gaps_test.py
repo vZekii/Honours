@@ -7,8 +7,13 @@ from qiskit.transpiler.layout import Layout
 from collections import defaultdict
 
 from pprint import pprint
+from rich import print  # fancier colouring
 
 from enum import Enum
+
+
+# Dummy putting gate here as it will be used to handle single gates later on
+Gap = Enum("Gap", "GATE TARGET CONTROL FREE")
 
 
 def _successors(node, dag):
@@ -30,8 +35,33 @@ def _build_required_predecessors(dag):
     return out
 
 
-# Dummy putting gate here as it will be used to handle single gates later on
-Gap = Enum("Gap", "GATE TARGET CONTROL FREE")
+def apply_gate_commutative(gate):
+    """
+    The bread and butter of the new algorithm. Will attempt to apply gates with commutativity, otherwise build a storage list of up to one gate.
+    """
+
+    # We can use the logical qubits for now, but otherwise
+    # we would need to swap because of the layout
+    v0, v1 = (
+        current_layout._v2p[gate.qargs[0]],
+        current_layout._v2p[gate.qargs[1]],
+    )
+
+    print(f"Attempting application of {gate.name} gate on qubits {v0} and {v1}")
+    print(gap_storage)
+
+    for i in range(min(v0, v1) + 1, max(v0, v1)):
+        print(f"{i} is free")
+        gap_storage[i] = Gap.FREE
+
+    # * The "and" is required here to ensure that the 2 gates are not applied on the same qubits, as there would be no option there.
+    if gap_storage[v0] == Gap.CONTROL and gap_storage[v1] != Gap.TARGET:
+        print(f"Found potential control match on qubit {v0}")
+
+    if gap_storage[v1] == Gap.TARGET and gap_storage[v0] != Gap.CONTROL:
+        print(f"Found potential target match on qubit {v0}")
+
+    gap_storage[v0], gap_storage[v1] = Gap.CONTROL, Gap.TARGET
 
 
 # Setup circuit
@@ -40,7 +70,7 @@ qasm_import = circuit_in.from_qasm_file("./test.qasm")
 circuit_in.compose(qasm_import, inplace=True)
 dag_in = circuit_to_dag(circuit_in)
 # draw_circuit(circuit_in, "testing")
-# draw_dag(dag_in, filename="testdag.png")  No graphviz on my laptop
+draw_dag(dag_in, filename="testdag.png")  # No graphviz on my laptop
 print(dag_in.properties())
 
 # Test code
@@ -52,7 +82,10 @@ current_layout = Layout.generate_trivial_layout(canonical_register)
 print(current_layout)
 
 physical_qubits = [0, 1, 2, 3, 4, 5]
-storage = {qubit: None for qubit in physical_qubits}
+gap_storage = {
+    qubit: Gap.FREE for qubit in physical_qubits
+}  # Dictionary to store gap info
+gate_storage = {idx: [] for idx in physical_qubits}  # dictionary to store 2 qubit gates
 
 
 # Execution
@@ -64,24 +97,20 @@ while front_layer:
 
     for gate in front_layer:
         if len(gate.qargs) == 2:
-            # We can use the logical qubits for now, but otherwise
-            # we would need to swap because of the layout
-            v0, v1 = (
-                current_layout._v2p[gate.qargs[0]],
-                current_layout._v2p[gate.qargs[1]],
-            )
-            print(f"Executed {gate.name} gate on qubits {v0} and {v1}")
-
-            for i in range(min(v0, v1) + 1, max(v0, v1)):
-                print(f"{i} is free")
-                storage[i] = Gap.FREE
-
-        execute_list.append(gate)
+            execute_list.append(gate)
 
     front_layer = []
+    if execute_list:
+        for gate in execute_list:
+            apply_gate_commutative(gate)
 
-    for gate in execute_list:
-        for successor in _successors(gate, dag_in):
-            pred[successor] -= 1
-            if pred[successor] == 0:
-                front_layer.append(successor)
+            for successor in _successors(gate, dag_in):
+                pred[successor] -= 1
+                if pred[successor] == 0:
+                    front_layer.append(successor)
+
+        ops_since_progress = []
+        extended_set = None
+        continue
+
+    print("Got to the end")
