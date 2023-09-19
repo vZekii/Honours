@@ -2,7 +2,8 @@
 # author: Zach Clare
 
 # Main research imports
-from ZCswap import SabreSwap
+# from ZCswap import SabreSwap
+from ZCswap_gaps import SabreSwap
 from helpers import draw_dag, draw_circuit
 from qiskit.transpiler.passes import SabreLayout
 import ag

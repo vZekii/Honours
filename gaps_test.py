@@ -67,10 +67,6 @@ def _obtain_extended_set(dag, front_layer, pred):
 
 
 def apply_gate_commutative(gate, dag, front_layer, pred):
-    """
-    The bread and butter of the new algorithm. Will attempt to apply gates with commutativity, otherwise build a storage list of up to one gate.
-    """
-
     # We can use the logical qubits for now, but otherwise
     # we would need to swap because of the layout
     v0, v1 = (

@@ -25,6 +25,14 @@ from qiskit.transpiler.exceptions import TranspilerError
 from qiskit.transpiler.layout import Layout
 from qiskit.dagcircuit import DAGOpNode
 
+# zc ---------
+from qiskit.dagcircuit.dagcircuit import DAGCircuit  # better for debugging
+from qiskit import QuantumRegister
+from rich import print
+from rich.panel import Panel
+
+# zc ---------
+
 logger = logging.getLogger(__name__)
 
 EXTENDED_SET_SIZE = (
@@ -65,6 +73,63 @@ class SabreSwap(TransformationPass):
         self.qubits_decay = None
         self._bit_indices = None
         self.dist_matrix = None
+        # zc -------
+        self.phy_qubits = None
+        self.gap_storage = None
+        self.gate_storage = None
+        # zc -------
+
+    def _apply_gate_commutative(
+        self,
+        mapped_dag: DAGCircuit,
+        node: DAGOpNode,
+        current_layout: Layout,
+        canonical_register: QuantumRegister,
+    ):
+        """
+        The bread and butter of the new algorithm. Will attempt to apply gates with commutativity, otherwise build a storage list of up to one gate.
+        """
+        # * zc Applies the gate onto the current dag, after transforming the gate
+        new_node = _transform_gate_for_layout(node, current_layout, canonical_register)
+
+        v0, v1 = (
+            current_layout._v2p[new_node.qargs[0]],
+            current_layout._v2p[new_node.qargs[1]],
+        )
+
+        print(
+            Panel(
+                f"Attempting application of {node.name} gate on qubits {v0} and {v1}",
+                highlight=True,
+            )
+        )
+
+        for i in range(min(v0, v1) + 1, max(v0, v1)):
+            print(f"{i} is free")
+            self.gap_storage[i] = Gap.FREE
+
+        # * The "and" is required here to ensure that the 2 gates are not applied on the same qubits, as there would be no option there.
+        if self.gap_storage[v0] == Gap.CONTROL and self.gap_storage[v1] != Gap.TARGET:
+            print(f"Found potential control match on qubit {v0}")
+
+            # TODO Need to trial the current layout and mapping, and determine if applying the rule will decrease depth
+            # TODO If it doesnt, we will keep the current setup, but if it does we will swap execution
+
+        elif self.gap_storage[v1] == Gap.TARGET and self.gap_storage[v0] != Gap.CONTROL:
+            print(f"Found potential target match on qubit {v0}")
+
+        else:
+            self.gate_storage[v0], self.gate_storage[v1] = node, node
+
+        self.gap_storage[v0], self.gap_storage[v1] = Gap.CONTROL, Gap.TARGET
+
+        print(self.gate_storage)
+
+        if self.fake_run:
+            return new_node
+        return mapped_dag.apply_operation_back(
+            new_node.op, new_node.qargs, new_node.cargs
+        )
 
     def run(self, dag):
         """Run the SabreSwap pass on `dag`.
@@ -115,11 +180,20 @@ class SabreSwap(TransformationPass):
         num_search_steps = 0
         front_layer = dag.front_layer()
 
-        # ---------
+        # zc ---------
+        self.phy_qubits = [
+            current_layout._v2p[qubit] for qubit in dag.qubits
+        ]  # list of qubit nums e.g. [0, 1, 2, 3, 4, 5]
 
-        # gate_storage = {idx: [] for idx in [current_layout._v2p[quit] for qubit in dag.qubits]}
+        self.gap_storage = {
+            qubit: Gap.FREE for qubit in self.phy_qubits
+        }  # Dictionary to store gap info
 
-        # ---------
+        self.gate_storage = {
+            idx: [] for idx in self.phy_qubits
+        }  # dictionary to store 2 qubit gates
+
+        # zc ---------
 
         while front_layer:
             execute_gate_list = []
@@ -168,6 +242,9 @@ class SabreSwap(TransformationPass):
                     self._apply_gate(
                         mapped_dag, node, current_layout, canonical_register
                     )
+                    # self._apply_gate(
+                    #     mapped_dag, node, current_layout, canonical_register
+                    # )
                     for successor in self._successors(node, dag):
                         self.required_predecessors[successor] -= 1
                         if self._is_resolved(successor):
@@ -202,6 +279,9 @@ class SabreSwap(TransformationPass):
             # for best score, pick one randomly.
             if extended_set is None:
                 extended_set = self._obtain_extended_set(dag, front_layer)
+            print(extended_set)
+            quit()
+
             swap_scores = {}
             for swap_qubits in self._obtain_swaps(front_layer, current_layout):
                 trial_layout = current_layout.copy()
