@@ -35,6 +35,11 @@ EXTENDED_SET_WEIGHT = 0.5  # Weight of lookahead window compared to front_layer.
 DECAY_RATE = 0.001  # Decay coefficient for penalizing serial swaps.
 DECAY_RESET_INTERVAL = 5  # How often to reset all decay rates to 1.
 
+from enum import Enum
+
+# Dummy putting gate here as it will be used to handle single gates later on
+Gap = Enum("Gap", "GATE TARGET CONTROL FREE")
+
 
 class SabreSwap(TransformationPass):
     def __init__(
