@@ -30,6 +30,7 @@ from qiskit.dagcircuit.dagcircuit import DAGCircuit  # better for debugging
 from qiskit import QuantumRegister
 from rich import print
 from rich.panel import Panel
+from helpers import draw_dag
 
 # zc ---------
 
@@ -114,6 +115,7 @@ class SabreSwap(TransformationPass):
 
             # TODO Need to trial the current layout and mapping, and determine if applying the rule will decrease depth
             # TODO If it doesnt, we will keep the current setup, but if it does we will swap execution
+            # TODO we can do this using the current mapped dag, copying it, and applying the gate before/after. This will include the prior stored gate under the gap. If we are applying it early, we apply the newer gate first (to fit it in) and then the previous gate can stay in storage (gaps will need to be updated here as well), otherwise, the prior gate will be applied and the new gate will be put into the storage, along with the updated gaps from the prior gate.
 
         elif self.gap_storage[v1] == Gap.TARGET and self.gap_storage[v0] != Gap.CONTROL:
             print(f"Found potential target match on qubit {v0}")
@@ -279,7 +281,9 @@ class SabreSwap(TransformationPass):
             # for best score, pick one randomly.
             if extended_set is None:
                 extended_set = self._obtain_extended_set(dag, front_layer)
+
             print(extended_set)
+            draw_dag(mapped_dag, filename="testing_mapped_dag.png")
             quit()
 
             swap_scores = {}
