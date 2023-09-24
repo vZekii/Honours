@@ -112,6 +112,7 @@ class SabreSwap(TransformationPass):
         # * The "and" is required here to ensure that the 2 gates are not applied on the same qubits, as there would be no option there.
         if self.gap_storage[v0] == Gap.CONTROL and self.gap_storage[v1] != Gap.TARGET:
             print(f"Found potential control match on qubit {v0}")
+            self.test_rule(mapped_dag, new_node)
 
             # TODO Need to trial the current layout and mapping, and determine if applying the rule will decrease depth
             # TODO If it doesnt, we will keep the current setup, but if it does we will swap execution
@@ -132,6 +133,14 @@ class SabreSwap(TransformationPass):
         return mapped_dag.apply_operation_back(
             new_node.op, new_node.qargs, new_node.cargs
         )
+
+    def test_rule(self, mapped_dag: DAGCircuit, node: DAGOpNode) -> int:
+        """Tries an application of a gate and returns the depth"""
+        trial_dag = deepcopy(mapped_dag)
+        trial_dag.apply_operation_back(node.op, node.qargs, node.cargs)
+        print(trial_dag.properties()["depth"])
+        print(mapped_dag.properties()["depth"])
+        quit()
 
     def run(self, dag):
         """Run the SabreSwap pass on `dag`.
@@ -241,7 +250,7 @@ class SabreSwap(TransformationPass):
             # * We can now apply the gates in the execute list
             if execute_gate_list:
                 for node in execute_gate_list:
-                    self._apply_gate(
+                    self._apply_gate_commutative(
                         mapped_dag, node, current_layout, canonical_register
                     )
                     # self._apply_gate(
@@ -282,9 +291,9 @@ class SabreSwap(TransformationPass):
             if extended_set is None:
                 extended_set = self._obtain_extended_set(dag, front_layer)
 
-            print(extended_set)
-            draw_dag(mapped_dag, filename="testing_mapped_dag.png")
-            quit()
+            # print(extended_set)
+            # draw_dag(mapped_dag, filename="testing_mapped_dag.png")
+            # quit()
 
             swap_scores = {}
             for swap_qubits in self._obtain_swaps(front_layer, current_layout):
