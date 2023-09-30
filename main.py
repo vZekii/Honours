@@ -64,7 +64,6 @@ def main() -> None:
     # Run the Sabre layout and get the initial mapping
     mapped_circuit = pm.run(circuit_in)
     mapped_dag = circuit_to_dag(mapped_circuit)
-
     print(mapped_dag.properties())
 
     # Commutation cancelation attempt
@@ -77,7 +76,7 @@ def main() -> None:
     # with open("commutation_pass_output.txt", "w") as f:
     #     print(property_set["commutation_set"], file=f)
 
-    inital_mapping = mapped_circuit.layout.final_layout
+    inital_mapping = mapped_circuit.layout.initial_layout
     print(f"Inititial mapping: {inital_mapping}")
     draw_circuit(mapped_circuit, "mapped")
 

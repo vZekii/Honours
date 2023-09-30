@@ -76,7 +76,7 @@ class SabreSwap(TransformationPass):
         self.dist_matrix = None
         # zc -------
         self.phy_qubits = None
-        self.gap_storage = None
+        self.gap_storage = dict[int, list[DAGOpNode]]
         self.gate_storage = None
         # zc -------
 
@@ -93,46 +93,166 @@ class SabreSwap(TransformationPass):
         # * zc Applies the gate onto the current dag, after transforming the gate
         new_node = _transform_gate_for_layout(node, current_layout, canonical_register)
 
-        v0, v1 = (
+        gate_control, gate_target = (
             current_layout._v2p[new_node.qargs[0]],
             current_layout._v2p[new_node.qargs[1]],
         )
 
         print(
             Panel(
-                f"Attempting application of {node.name} gate on qubits {v0} and {v1}",
+                f"Attempting application of {node.name} gate on qubits {gate_control} and {gate_target}",
                 highlight=True,
             )
         )
 
-        for i in range(min(v0, v1) + 1, max(v0, v1)):
+        # we can make any qubits inbetween the gate a gap.
+        for i in range(
+            min(gate_control, gate_target) + 1, max(gate_control, gate_target)
+        ):
             print(f"{i} is free")
             self.gap_storage[i] = Gap.FREE
 
         # * The "and" is required here to ensure that the 2 gates are not applied on the same qubits, as there would be no option there.
-        if self.gap_storage[v0] == Gap.CONTROL and self.gap_storage[v1] != Gap.TARGET:
-            print(f"Found potential control match on qubit {v0}")
-            self.test_rule(mapped_dag, new_node)
+        if (
+            self.gap_storage[gate_control] == Gap.CONTROL
+            and self.gap_storage[gate_target] != Gap.TARGET
+        ):
+            print(f"Found potential control match on qubit {gate_control}")
+            # self.test_rule(mapped_dag, new_node)
+
+            prior = self.gate_storage[gate_control]
+            prior_control, prior_target = (
+                current_layout._v2p[prior.qargs[0]],
+                current_layout._v2p[prior.qargs[1]],
+            )
+            print(f"prior gate on qubits {prior_control}, {prior_target}")
+
+            if self.apply_before(mapped_dag, prior, new_node):
+                print("we should apply the new node before")
+                mapped_dag.apply_operation_back(
+                    new_node.op, new_node.qargs, new_node.cargs
+                )
+                self.gap_storage[prior_control] = Gap.CONTROL
+                self.gap_storage[prior_target] = Gap.TARGET
+
+                # since we applied the prior gate second, the storage doesn't have to update
+                self.gate_storage[prior_control], self.gate_storage[prior_target] = (
+                    prior,
+                    prior,
+                )
+            else:
+                print("we should do it the same way")
+                # Apply the prior gate and save the new one
+                mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+
+                self.gap_storage[gate_control] = Gap.CONTROL
+                self.gap_storage[gate_target] = Gap.TARGET
+
+                # remove the prior from storage
+                self.gate_storage[prior_control], self.gate_storage[prior_target] = (
+                    [],
+                    [],
+                )
+                # and put the new gate in
+                self.gate_storage[gate_control], self.gate_storage[gate_target] = (
+                    new_node,
+                    new_node,
+                )
 
             # TODO Need to trial the current layout and mapping, and determine if applying the rule will decrease depth
             # TODO If it doesnt, we will keep the current setup, but if it does we will swap execution
             # TODO we can do this using the current mapped dag, copying it, and applying the gate before/after. This will include the prior stored gate under the gap. If we are applying it early, we apply the newer gate first (to fit it in) and then the previous gate can stay in storage (gaps will need to be updated here as well), otherwise, the prior gate will be applied and the new gate will be put into the storage, along with the updated gaps from the prior gate.
 
-        elif self.gap_storage[v1] == Gap.TARGET and self.gap_storage[v0] != Gap.CONTROL:
-            print(f"Found potential target match on qubit {v0}")
+        elif (
+            self.gap_storage[gate_target] == Gap.TARGET
+            and self.gap_storage[gate_control] != Gap.CONTROL
+        ):
+            print(f"Found potential target match on qubit {gate_target}")
+
+            prior = self.gate_storage[gate_target]
+            prior_control, prior_target = (
+                current_layout._v2p[prior.qargs[0]],
+                current_layout._v2p[prior.qargs[1]],
+            )
+            print(f"prior gate on qubits {prior_control}, {prior_target}")
+
+            if self.apply_before(mapped_dag, prior, new_node):
+                print("we should apply the new node before")
+                mapped_dag.apply_operation_back(
+                    new_node.op, new_node.qargs, new_node.cargs
+                )
+                self.gap_storage[gate_control] = Gap.FREE
+                self.gap_storage[prior_control] = Gap.CONTROL
+                self.gap_storage[prior_target] = Gap.TARGET
+
+                # since we applied the prior gate second, the storage doesn't have to update
+                self.gate_storage[prior_control], self.gate_storage[prior_target] = (
+                    prior,
+                    prior,
+                )
+            else:
+                print("we should do it the same way")
+                # Apply the prior gate and save the new one
+                mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+
+                self.gap_storage[prior_target] = Gap.FREE
+                self.gap_storage[gate_control] = Gap.CONTROL
+                self.gap_storage[gate_target] = Gap.TARGET
+
+                # remove the prior from storage
+                self.gate_storage[prior_control], self.gate_storage[prior_target] = (
+                    [],
+                    [],
+                )
+                # and put the new gate in
+                self.gate_storage[gate_control], self.gate_storage[gate_target] = (
+                    new_node,
+                    new_node,
+                )
+
+            # we need to test both applications, both forward and back
 
         else:
-            self.gate_storage[v0], self.gate_storage[v1] = node, node
+            self.gate_storage[gate_control], self.gate_storage[gate_target] = (
+                new_node,
+                new_node,
+            )
 
-        self.gap_storage[v0], self.gap_storage[v1] = Gap.CONTROL, Gap.TARGET
+        self.gap_storage[gate_control], self.gap_storage[gate_target] = (
+            Gap.CONTROL,
+            Gap.TARGET,
+        )
 
         print(self.gate_storage)
 
         if self.fake_run:
             return new_node
-        return mapped_dag.apply_operation_back(
-            new_node.op, new_node.qargs, new_node.cargs
-        )
+        # return mapped_dag.apply_operation_back(
+        #     new_node.op, new_node.qargs, new_node.cargs
+        # )
+
+    def apply_before(
+        self, mapped_dag: DAGCircuit, prior_node: DAGOpNode, new_node: DAGOpNode
+    ) -> bool:
+        trial1 = deepcopy(mapped_dag)
+        trial1.apply_operation_back(prior_node.op, prior_node.qargs, prior_node.cargs)
+        trial1.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
+        score1 = trial1.properties()["depth"]
+
+        trial2 = deepcopy(mapped_dag)
+        trial2.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
+        trial2.apply_operation_back(prior_node.op, prior_node.qargs, prior_node.cargs)
+        score2 = trial2.properties()["depth"]
+
+        print(f"Applied new gate last and got depth {score1}")
+        print(f"Applied new gate first and got depth {score2}")
+
+        if score1 > score2:
+            # if the depth applying the new node first is lower, we apply first
+            # This is only explicitly done if there is a depth decrease, otherwise no change is made
+            return True
+        else:
+            return False
 
     def test_rule(self, mapped_dag: DAGCircuit, node: DAGOpNode) -> int:
         """Tries an application of a gate and returns the depth"""
@@ -213,11 +333,12 @@ class SabreSwap(TransformationPass):
             new_front_layer = []
             for node in front_layer:
                 if len(node.qargs) == 2:
-                    v0, v1 = node.qargs
+                    gate_control, gate_target = node.qargs
                     # Accessing layout._v2p directly to avoid overhead from __getitem__ and a
                     # single access isn't feasible because the layout is updated on each iteration
                     if self.coupling_map.graph.has_edge(
-                        current_layout._v2p[v0], current_layout._v2p[v1]
+                        current_layout._v2p[gate_control],
+                        current_layout._v2p[gate_target],
                     ):
                         execute_gate_list.append(node)
                         # * if the qubits are connected, we can execute it straight away
