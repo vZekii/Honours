@@ -30,7 +30,8 @@ from qiskit.dagcircuit.dagcircuit import DAGCircuit  # better for debugging
 from qiskit import QuantumRegister
 from rich import print
 from rich.panel import Panel
-from helpers import draw_dag
+from helpers import draw_circuit
+from qiskit.converters import dag_to_circuit
 
 # zc ---------
 
@@ -78,6 +79,7 @@ class SabreSwap(TransformationPass):
         self.phy_qubits = None
         self.gap_storage = dict[int, list[DAGOpNode]]
         self.gate_storage = None
+        self.iteration = 1
         # zc -------
 
     def _apply_gate_commutative(
@@ -100,10 +102,11 @@ class SabreSwap(TransformationPass):
 
         print(
             Panel(
-                f"Attempting application of {node.name} gate on qubits {gate_control} and {gate_target}",
+                f"Attempting application of {node.name} gate on control {gate_control} and target {gate_target}",
                 highlight=True,
             )
         )
+        print(f"Current Gaps: {self.gap_storage}")
 
         # we can make any qubits inbetween the gate a gap.
         for i in range(
@@ -112,6 +115,7 @@ class SabreSwap(TransformationPass):
             print(f"{i} is free")
             self.gap_storage[i] = Gap.FREE
 
+        # * Begin main logic here
         # * The "and" is required here to ensure that the 2 gates are not applied on the same qubits, as there would be no option there.
         if (
             self.gap_storage[gate_control] == Gap.CONTROL
@@ -213,6 +217,33 @@ class SabreSwap(TransformationPass):
             # we need to test both applications, both forward and back
 
         else:
+            # if the gate doesnt match but applies on a line with gates stored, we need to override this.
+            if self.gate_storage[gate_control]:
+                prior = self.gate_storage[gate_control]
+                prior_control, prior_target = (
+                    current_layout._v2p[prior.qargs[0]],
+                    current_layout._v2p[prior.qargs[1]],
+                )
+                mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+
+                # self.gate_storage[prior_control], self.gate_storage[prior_target] = (
+                #     [],
+                #     [],
+                # )
+
+            elif self.gate_storage[gate_target]:
+                prior = self.gate_storage[gate_target]
+                prior_control, prior_target = (
+                    current_layout._v2p[prior.qargs[0]],
+                    current_layout._v2p[prior.qargs[1]],
+                )
+                mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+
+                # self.gate_storage[prior_control], self.gate_storage[prior_target] = (
+                #     [],
+                #     [],
+                # )
+
             self.gate_storage[gate_control], self.gate_storage[gate_target] = (
                 new_node,
                 new_node,
@@ -224,6 +255,8 @@ class SabreSwap(TransformationPass):
         )
 
         print(self.gate_storage)
+        draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
+        self.iteration += 1
 
         if self.fake_run:
             return new_node
@@ -250,6 +283,9 @@ class SabreSwap(TransformationPass):
         if score1 > score2:
             # if the depth applying the new node first is lower, we apply first
             # This is only explicitly done if there is a depth decrease, otherwise no change is made
+            draw_circuit(dag_to_circuit(trial1), f"trial1")
+            draw_circuit(dag_to_circuit(trial2), f"trial2")
+            # quit()
             return True
         else:
             return False
@@ -436,6 +472,21 @@ class SabreSwap(TransformationPass):
                 current_layout,
                 canonical_register,
             )
+            # zc -----------
+            p0, p1 = (
+                current_layout._v2p[best_swap[0]],
+                current_layout._v2p[best_swap[1]],
+            )
+            self.gap_storage[p0], self.gap_storage[p1] = (
+                self.gap_storage[p1],
+                self.gap_storage[p0],
+            )
+            self.gate_storage[p0], self.gate_storage[p1] = (
+                self.gate_storage[p1],
+                self.gate_storage[p0],
+            )
+            # zc -----------
+
             current_layout.swap(*best_swap)
             ops_since_progress.append(swap_node)
 
