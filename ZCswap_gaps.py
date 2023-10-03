@@ -82,6 +82,17 @@ class SabreSwap(TransformationPass):
         self.iteration = 1
         # zc -------
 
+    def get_qubits_from_layout(
+        self, node: DAGOpNode, current_layout: Layout
+    ) -> int | tuple[int, int]:
+        if len(node.qargs) == 2:
+            return (
+                current_layout._v2p[node.qargs[0]],
+                current_layout._v2p[node.qargs[1]],
+            )
+        else:
+            return current_layout._v2p[node.qargs]
+
     def _apply_gate_commutative(
         self,
         mapped_dag: DAGCircuit,
@@ -93,11 +104,15 @@ class SabreSwap(TransformationPass):
         The bread and butter of the new algorithm. Will attempt to apply gates with commutativity, otherwise build a storage list of up to one gate.
         """
         # * zc Applies the gate onto the current dag, after transforming the gate
+        print(node.qargs)
         new_node = _transform_gate_for_layout(node, current_layout, canonical_register)
-
-        gate_control, gate_target = (
-            current_layout._v2p[new_node.qargs[0]],
-            current_layout._v2p[new_node.qargs[1]],
+        print(new_node.qargs)
+        if node.op.name == "swap":
+            quit()
+        else:
+            print(node.op.name)
+        gate_control, gate_target = self.get_qubits_from_layout(
+            new_node, current_layout
         )
 
         print(
@@ -125,9 +140,8 @@ class SabreSwap(TransformationPass):
             # self.test_rule(mapped_dag, new_node)
 
             prior = self.gate_storage[gate_control]
-            prior_control, prior_target = (
-                current_layout._v2p[prior.qargs[0]],
-                current_layout._v2p[prior.qargs[1]],
+            prior_control, prior_target = self.get_qubits_from_layout(
+                prior, current_layout
             )
             print(f"prior gate on qubits {prior_control}, {prior_target}")
 
@@ -174,9 +188,8 @@ class SabreSwap(TransformationPass):
             print(f"Found potential target match on qubit {gate_target}")
 
             prior = self.gate_storage[gate_target]
-            prior_control, prior_target = (
-                current_layout._v2p[prior.qargs[0]],
-                current_layout._v2p[prior.qargs[1]],
+            prior_control, prior_target = self.get_qubits_from_layout(
+                prior, current_layout
             )
             print(f"prior gate on qubits {prior_control}, {prior_target}")
 
@@ -220,9 +233,8 @@ class SabreSwap(TransformationPass):
             # if the gate doesnt match but applies on a line with gates stored, we need to override this.
             if self.gate_storage[gate_control]:
                 prior = self.gate_storage[gate_control]
-                prior_control, prior_target = (
-                    current_layout._v2p[prior.qargs[0]],
-                    current_layout._v2p[prior.qargs[1]],
+                prior_control, prior_target = self.get_qubits_from_layout(
+                    prior, current_layout
                 )
                 mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
 
@@ -289,14 +301,6 @@ class SabreSwap(TransformationPass):
             return True
         else:
             return False
-
-    def test_rule(self, mapped_dag: DAGCircuit, node: DAGOpNode) -> int:
-        """Tries an application of a gate and returns the depth"""
-        trial_dag = deepcopy(mapped_dag)
-        trial_dag.apply_operation_back(node.op, node.qargs, node.cargs)
-        print(trial_dag.properties()["depth"])
-        print(mapped_dag.properties()["depth"])
-        quit()
 
     def run(self, dag):
         """Run the SabreSwap pass on `dag`.
@@ -466,12 +470,22 @@ class SabreSwap(TransformationPass):
                 key=lambda x: (self._bit_indices[x[0]], self._bit_indices[x[1]])
             )
             best_swap = rng.choice(best_swaps)
-            swap_node = self._apply_gate(
+            # swap_node = self._apply_gate(
+            #     mapped_dag,
+            #     DAGOpNode(op=SwapGate(), qargs=best_swap),
+            #     current_layout,
+            #     canonical_register,
+            # )
+            # zc --------------
+            swap_node = self._apply_gate_commutative(
                 mapped_dag,
                 DAGOpNode(op=SwapGate(), qargs=best_swap),
                 current_layout,
                 canonical_register,
             )
+
+            # zc --------------
+
             # zc -----------
             p0, p1 = (
                 current_layout._v2p[best_swap[0]],
