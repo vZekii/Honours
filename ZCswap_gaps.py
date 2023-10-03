@@ -78,7 +78,7 @@ class SabreSwap(TransformationPass):
         self.dist_matrix = None
         # zc -------
         self.phy_qubits = None
-        self.node_buffer = None
+        self.node_buffer = Union[DAGOpNode, None]
         self.gap_storage = dict[int, Gap]
         self.gate_storage = dict[int, DAGOpNode]
         self.iteration = 1
@@ -132,6 +132,9 @@ class SabreSwap(TransformationPass):
             # self.test_rule(mapped_dag, new_node)
 
             prior = self.gate_storage[gate_control]
+            prior = _transform_gate_for_layout(
+                prior, current_layout, canonical_register
+            )  # Addon
             prior_control, prior_target = self.get_qubits_from_layout(
                 prior, current_layout
             )
@@ -169,6 +172,9 @@ class SabreSwap(TransformationPass):
                     new_node,
                 )
 
+                # the new node is now also the last applied
+                self.node_buffer = new_node
+
         elif (
             self.gap_storage[gate_target] == Gap.TARGET
             and self.gap_storage[gate_control] != Gap.CONTROL
@@ -176,6 +182,10 @@ class SabreSwap(TransformationPass):
             print(f"Found potential target match on qubit {gate_target}")
 
             prior = self.gate_storage[gate_target]
+            # TODO need to debug the transform function, as it seems to be messing up the qargs
+            prior = _transform_gate_for_layout(
+                prior, current_layout, canonical_register
+            )  # Addon
             prior_control, prior_target = self.get_qubits_from_layout(
                 prior, current_layout
             )
@@ -215,16 +225,24 @@ class SabreSwap(TransformationPass):
                     new_node,
                 )
 
+                # the new node is now also the last applied
+                self.node_buffer = new_node
+
             # we need to test both applications, both forward and back
 
         else:
-            # if the gate doesnt match but applies on a line with gates stored, we need to override this.
+            # if the gate doesnt match but applies on a line with gates stored, we need to apply the prior gate if possible, otherwise just add the gate into the buffer
+            prior = None
             if self.gate_storage[gate_control]:
                 prior = self.gate_storage[gate_control]
-                mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
 
             elif self.gate_storage[gate_target]:
                 prior = self.gate_storage[gate_target]
+
+            if prior:
+                prior = _transform_gate_for_layout(
+                    prior, current_layout, canonical_register
+                )  # Addon
                 mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
 
             self.gate_storage[gate_control], self.gate_storage[gate_target] = (
@@ -232,10 +250,44 @@ class SabreSwap(TransformationPass):
                 new_node,
             )
 
+            # the new node is now also the last applied
+            self.node_buffer = new_node
+
         self.gap_storage[gate_control], self.gap_storage[gate_target] = (
             Gap.CONTROL,
             Gap.TARGET,
         )
+
+    def zc_handle_swap(
+        self,
+        mapped_dag: DAGCircuit,
+        new_node: DAGOpNode,
+        current_layout: Layout,
+        canonical_register: QuantumRegister,
+    ):
+        # ! quick hack to quick apply the last gate in storage
+        if self.node_buffer:
+            mapped_dag.apply_operation_back(
+                self.node_buffer.op,
+                self.node_buffer.qargs,
+                self.node_buffer.cargs,
+            )
+            buffer_control, buffer_target = self.get_qubits_from_layout(
+                self.node_buffer, current_layout
+            )
+            self.gap_storage[buffer_control], self.gap_storage[buffer_target] = (
+                Gap.CONTROL,
+                Gap.TARGET,
+            )
+            self.node_buffer = None
+
+            # TODO Need to also remove this gate from the gate buffer, as it has negative consequences.
+            # TODO Actually, rather than using a node, we could store the last affected wire, and remove both at the same time.
+        # ! end of quick hack
+
+        mapped_dag.apply_operation_back(
+            new_node.op, new_node.qargs, new_node.cargs
+        )  # just chuck the swap down straight away for now
 
     def _apply_gate_commutative(
         self,
@@ -262,6 +314,9 @@ class SabreSwap(TransformationPass):
 
             if node.op.name == "swap":
                 # Swap can trade places with any single qubit gate, or a flipped version of a cnot gate
+                self.zc_handle_swap(
+                    mapped_dag, node, current_layout, canonical_register
+                )
                 pass
         elif node.qargs == 1:
             if node.op.name == "rz":
@@ -407,19 +462,19 @@ class SabreSwap(TransformationPass):
             # * Finish executing as many as possible, and override the front layer with the gates we can't execute
 
             # ! the code below is new - and prevents the algorithm from getting stuck - only works on lists where nothing is executable
-            if (
-                not execute_gate_list
-                and len(ops_since_progress) > max_iterations_without_progress
-            ):
-                # Backtrack to the last time we made progress, then greedily insert swaps to route
-                # the gate with the smallest distance between its arguments.  This is a release
-                # valve for the algorithm to avoid infinite loops only, and should generally not
-                # come into play for most circuits.
-                self._undo_operations(ops_since_progress, mapped_dag, current_layout)
-                self._add_greedy_swaps(
-                    front_layer, mapped_dag, current_layout, canonical_register
-                )
-                continue
+            # if (
+            #     not execute_gate_list
+            #     and len(ops_since_progress) > max_iterations_without_progress
+            # ):
+            #     # Backtrack to the last time we made progress, then greedily insert swaps to route
+            #     # the gate with the smallest distance between its arguments.  This is a release
+            #     # valve for the algorithm to avoid infinite loops only, and should generally not
+            #     # come into play for most circuits.
+            #     self._undo_operations(ops_since_progress, mapped_dag, current_layout)
+            #     self._add_greedy_swaps(
+            #         front_layer, mapped_dag, current_layout, canonical_register
+            #     )
+            #     continue
 
             # * We can now apply the gates in the execute list
             if execute_gate_list:
