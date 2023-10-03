@@ -37,7 +37,8 @@ def main() -> None:
     # Select a benchmark/test circuit
     benchmark_path = "./benchmarks/custom/"
     # bench_file = os.listdir(benchmark_path)[6]
-    bench_file = os.listdir(benchmark_path)[0]
+    # bench_file = os.listdir(benchmark_path)[0]
+    bench_file = "custom2.qasm"
 
     # Initialise the circuit and registers
     register = QuantumRegister(AG_qiskit.size(), "q")

@@ -32,6 +32,7 @@ from rich import print
 from rich.panel import Panel
 from helpers import draw_circuit
 from qiskit.converters import dag_to_circuit
+from typing import Union
 
 # zc ---------
 
@@ -77,14 +78,15 @@ class SabreSwap(TransformationPass):
         self.dist_matrix = None
         # zc -------
         self.phy_qubits = None
-        self.gap_storage = dict[int, list[DAGOpNode]]
-        self.gate_storage = None
+        self.node_buffer = None
+        self.gap_storage = dict[int, Gap]
+        self.gate_storage = dict[int, DAGOpNode]
         self.iteration = 1
         # zc -------
 
     def get_qubits_from_layout(
         self, node: DAGOpNode, current_layout: Layout
-    ) -> int | tuple[int, int]:
+    ) -> Union[int, tuple[int, int]]:
         if len(node.qargs) == 2:
             return (
                 current_layout._v2p[node.qargs[0]],
@@ -93,42 +95,32 @@ class SabreSwap(TransformationPass):
         else:
             return current_layout._v2p[node.qargs]
 
-    def _apply_gate_commutative(
+    def insert_free_gaps(self, qarg1: int, qarg2: int) -> None:
+        """Fill any gaps between 2 qubit nodes with free space"""
+        for i in range(min(qarg1, qarg2) + 1, max(qarg1, qarg2)):
+            print(f"{i} is free")
+            self.gap_storage[i] = Gap.FREE
+
+    def zc_handle_cnot(
         self,
         mapped_dag: DAGCircuit,
-        node: DAGOpNode,
+        new_node: DAGOpNode,
         current_layout: Layout,
         canonical_register: QuantumRegister,
     ):
-        """
-        The bread and butter of the new algorithm. Will attempt to apply gates with commutativity, otherwise build a storage list of up to one gate.
-        """
-        # * zc Applies the gate onto the current dag, after transforming the gate
-        print(node.qargs)
-        new_node = _transform_gate_for_layout(node, current_layout, canonical_register)
-        print(new_node.qargs)
-        if node.op.name == "swap":
-            quit()
-        else:
-            print(node.op.name)
         gate_control, gate_target = self.get_qubits_from_layout(
             new_node, current_layout
         )
 
+        # we can make any qubits inbetween the gate a gap.
+        self.insert_free_gaps(gate_control, gate_target)
+
         print(
             Panel(
-                f"Attempting application of {node.name} gate on control {gate_control} and target {gate_target}",
+                f"Attempting application of {new_node.name} gate on control {gate_control} and target {gate_target}",
                 highlight=True,
             )
         )
-        print(f"Current Gaps: {self.gap_storage}")
-
-        # we can make any qubits inbetween the gate a gap.
-        for i in range(
-            min(gate_control, gate_target) + 1, max(gate_control, gate_target)
-        ):
-            print(f"{i} is free")
-            self.gap_storage[i] = Gap.FREE
 
         # * Begin main logic here
         # * The "and" is required here to ensure that the 2 gates are not applied on the same qubits, as there would be no option there.
@@ -176,10 +168,6 @@ class SabreSwap(TransformationPass):
                     new_node,
                     new_node,
                 )
-
-            # TODO Need to trial the current layout and mapping, and determine if applying the rule will decrease depth
-            # TODO If it doesnt, we will keep the current setup, but if it does we will swap execution
-            # TODO we can do this using the current mapped dag, copying it, and applying the gate before/after. This will include the prior stored gate under the gap. If we are applying it early, we apply the newer gate first (to fit it in) and then the previous gate can stay in storage (gaps will need to be updated here as well), otherwise, the prior gate will be applied and the new gate will be put into the storage, along with the updated gaps from the prior gate.
 
         elif (
             self.gap_storage[gate_target] == Gap.TARGET
@@ -233,28 +221,11 @@ class SabreSwap(TransformationPass):
             # if the gate doesnt match but applies on a line with gates stored, we need to override this.
             if self.gate_storage[gate_control]:
                 prior = self.gate_storage[gate_control]
-                prior_control, prior_target = self.get_qubits_from_layout(
-                    prior, current_layout
-                )
                 mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
-
-                # self.gate_storage[prior_control], self.gate_storage[prior_target] = (
-                #     [],
-                #     [],
-                # )
 
             elif self.gate_storage[gate_target]:
                 prior = self.gate_storage[gate_target]
-                prior_control, prior_target = (
-                    current_layout._v2p[prior.qargs[0]],
-                    current_layout._v2p[prior.qargs[1]],
-                )
                 mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
-
-                # self.gate_storage[prior_control], self.gate_storage[prior_target] = (
-                #     [],
-                #     [],
-                # )
 
             self.gate_storage[gate_control], self.gate_storage[gate_target] = (
                 new_node,
@@ -266,12 +237,54 @@ class SabreSwap(TransformationPass):
             Gap.TARGET,
         )
 
+    def _apply_gate_commutative(
+        self,
+        mapped_dag: DAGCircuit,
+        node: DAGOpNode,
+        current_layout: Layout,
+        canonical_register: QuantumRegister,
+    ):
+        """
+        The bread and butter of the new algorithm. Will attempt to apply gates with commutativity, otherwise build a storage list of up to one gate.
+        """
+
+        # First change the gate depending on the layout
+        node = _transform_gate_for_layout(node, current_layout, canonical_register)
+
+        # * We first need to figure out what gate it is, and what options we have in terms of commutativity
+        if len(node.qargs) == 2:
+            # We first handle 2 qubit gates as they offer more in depth commutativity
+            if node.op.name == "cx":  # cx = cnot gate
+                # Handle inter-cnot rules (swapping on same control or same target)
+                self.zc_handle_cnot(
+                    mapped_dag, node, current_layout, canonical_register
+                )
+
+            if node.op.name == "swap":
+                # Swap can trade places with any single qubit gate, or a flipped version of a cnot gate
+                pass
+        elif node.qargs == 1:
+            if node.op.name == "rz":
+                pass
+            if node.op.name == "rx":
+                pass
+            else:
+                # Handle non specific "U" gates here.
+                pass
+        else:
+            # raise an exception as a backup
+            raise Exception(
+                f"Unexpected gate found when applying rules. qargs: {node.qargs}, op: {node.op.name}"
+            )
+
+        print(f"Current Gaps: {self.gap_storage}")
         print(self.gate_storage)
         draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
         self.iteration += 1
+        input()
 
         if self.fake_run:
-            return new_node
+            return node
         # return mapped_dag.apply_operation_back(
         #     new_node.op, new_node.qargs, new_node.cargs
         # )
