@@ -169,11 +169,10 @@ class SabreSwap(TransformationPass):
                     self.gap_storage[gate_control] = Gap.CONTROL
                     self.gap_storage[gate_target] = Gap.TARGET
 
-                    # remove the prior from storage
-                    # self.gate_storage[prior_control], self.gate_storage[prior_target] = (
-                    #     [],
-                    #     [],
-                    # )
+                    # update prior in storage
+                    self.gate_storage[prior_control]["applied"] = True
+                    self.gate_storage[prior_target]["applied"] = True
+
                     # and put the new gate in
                     self.gate_storage[gate_control], self.gate_storage[gate_target] = (
                         {"node": new_node, "applied": False},
@@ -231,11 +230,10 @@ class SabreSwap(TransformationPass):
                     self.gap_storage[gate_control] = Gap.CONTROL
                     self.gap_storage[gate_target] = Gap.TARGET
 
-                    # remove the prior from storage
-                    # self.gate_storage[prior_control], self.gate_storage[prior_target] = (
-                    #     [],
-                    #     [],
-                    # )
+                    # update prior in storage
+                    self.gate_storage[prior_control]["applied"] = True
+                    self.gate_storage[prior_target]["applied"] = True
+
                     # and put the new gate in
                     self.gate_storage[gate_control], self.gate_storage[gate_target] = (
                         {"node": new_node, "applied": False},
@@ -259,19 +257,26 @@ class SabreSwap(TransformationPass):
         elif self.gate_storage[gate_target]:
             prior = self.gate_storage[gate_target]["node"]
 
-        # if prior == self.node_buffer:
-        #     print("Tried to reapply same last gate")
-        #     print(self.gate_storage)
-        #     print(f"prior: {prior.op.name}, {prior.qargs}")
-        #     print(f"buffer: {self.node_buffer.op.name}, {self.node_buffer.qargs}")
-        #     print(self.gap_storage)
-        #     return
+        if prior == self.node_buffer:
+            print("Tried to reapply same last gate")
+            print(self.gate_storage)
+            print(f"prior: {prior.op.name}, {prior.qargs}")
+            print(f"buffer: {self.node_buffer.op.name}, {self.node_buffer.qargs}")
+            print(self.gap_storage)
+            print(f"buffer str: {self.node_buffer}, prior str: {prior}")
+            return
 
         if prior:
             prior = _transform_gate_for_layout(
                 prior, current_layout, canonical_register
             )  # Addon
+            prior_control, prior_target = self.get_qubits_from_layout(
+                prior, current_layout
+            )
             mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+            # update prior in storage
+            self.gate_storage[prior_control]["applied"] = True
+            self.gate_storage[prior_target]["applied"] = True
 
         self.gate_storage[gate_control], self.gate_storage[gate_target] = (
             {"node": new_node, "applied": False},
@@ -325,7 +330,7 @@ class SabreSwap(TransformationPass):
     def zc_handle_swap(
         self,
         mapped_dag: DAGCircuit,
-        new_node: DAGOpNode,
+        swap_node: DAGOpNode,
         current_layout: Layout,
         canonical_register: QuantumRegister,
     ):
@@ -336,6 +341,8 @@ class SabreSwap(TransformationPass):
                 self.node_buffer.qargs,
                 self.node_buffer.cargs,
             )
+
+            # TODO this will need to be ammended to allow for single qubit gates as well
             buffer_control, buffer_target = self.get_qubits_from_layout(
                 self.node_buffer, current_layout
             )
@@ -343,17 +350,18 @@ class SabreSwap(TransformationPass):
                 Gap.CONTROL,
                 Gap.TARGET,
             )
-            self.gate_storage[buffer_control], self.gate_storage[buffer_target] = (
-                [],
-                [],
-            )
+
+            # Update in storage
+            self.gate_storage[buffer_control]["applied"]
+            self.gate_storage[buffer_target]["applied"]
+
             self.node_buffer = None
 
             # TODO Need to also remove this gate from the gate buffer, as it has negative consequences.
             # TODO Actually, rather than using a node, we could store the last affected wire, and remove both at the same time.
         # ! end of quick hack
 
-        targ1, targ2 = self.get_qubits_from_layout(new_node, current_layout)
+        targ1, targ2 = self.get_qubits_from_layout(swap_node, current_layout)
         # code to transform each gate that lies on the swap line
         # for wire in (targ1, targ2):
         #     if self.gate_storage[wire]:
@@ -367,12 +375,12 @@ class SabreSwap(TransformationPass):
         # modify the gaps to include swap
         self.gap_storage[targ1], self.gap_storage[targ2] = Gap.SWAP, Gap.SWAP
         self.gate_storage[targ1], self.gate_storage[targ2] = (
-            {"node": new_node, "applied": True},
-            {"node": new_node, "applied": True},
+            {"node": swap_node, "applied": True},
+            {"node": swap_node, "applied": True},
         )
 
         mapped_dag.apply_operation_back(
-            new_node.op, new_node.qargs, new_node.cargs
+            swap_node.op, swap_node.qargs, swap_node.cargs
         )  # just chuck the swap down straight away for now
 
     def _apply_gate_commutative(
