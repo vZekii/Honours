@@ -10,8 +10,8 @@ def output_architecture(func):
         g = func(*args, **kwargs)
         import matplotlib.pyplot as plt  # For drawing the graphs
 
-        # nx.draw(g, with_labels=True, font_weight='bold')
-        nx.draw_kamada_kawai(g, with_labels=True, font_weight="bold")
+        nx.draw(g, with_labels=True, font_weight="bold")
+        # nx.draw_kamada_kawai(g, with_labels=True, font_weight="bold")
         plt.savefig("debug/architecture.png")
         return g
 

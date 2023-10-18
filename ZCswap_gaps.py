@@ -249,27 +249,54 @@ class SabreSwap(TransformationPass):
         except TypeError:
             pass
 
+        print("if it messes up after this we're screwed")
+
         # if the gate doesnt match but applies on a line with gates stored, we need to apply the prior gate if possible, otherwise just add the gate into the buffer
         prior = None
-        if self.gate_storage[gate_control]:
-            prior = self.gate_storage[gate_control]["node"]
+        if isinstance(self.gate_storage[gate_control], dict):
+            print("found prior on control")
+            print(self.gate_storage[gate_control])
+            if not self.gate_storage[gate_control]["applied"]:
+                print("it wasn't applied")
+                prior = self.gate_storage[gate_control]["node"]
 
-        elif self.gate_storage[gate_target]:
-            prior = self.gate_storage[gate_target]["node"]
+        elif isinstance(self.gate_storage[gate_target], dict):
+            print("found prior on target")
+            print(self.gate_storage[gate_target])
+            if not self.gate_storage[gate_target]["applied"]:
+                print("it wasn't applied")
+                prior = self.gate_storage[gate_target]["node"]
 
-        if prior == self.node_buffer:
-            print("Tried to reapply same last gate")
-            print(self.gate_storage)
-            print(f"prior: {prior.op.name}, {prior.qargs}")
-            print(f"buffer: {self.node_buffer.op.name}, {self.node_buffer.qargs}")
-            print(self.gap_storage)
-            print(f"buffer str: {self.node_buffer}, prior str: {prior}")
-            return
+        # if (
+        #     prior == self.node_buffer and self.node_buffer is not None
+        # ):  # had to add a reset for the None reset on a swap
+        #     print("Tried to reapply same last gate")
+        #     print(self.gate_storage)
+        #     print(f"prior: {prior.op.name}, {prior.qargs}")
+        #     print(f"buffer: {self.node_buffer.op.name}, {self.node_buffer.qargs}")
+        #     print(self.gap_storage)
+        #     print(f"buffer str: {self.node_buffer}, prior str: {prior}")
+        #     return
 
         if prior:
-            prior = _transform_gate_for_layout(
-                prior, current_layout, canonical_register
-            )  # Addon
+            print("found a prior and doing weird stuff")
+            # prior = _transform_gate_for_layout(
+            #     prior, current_layout, canonical_register
+            # )  # Addon
+            prior_control, prior_target = self.get_qubits_from_layout(
+                prior, current_layout
+            )
+            mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+            # update prior in storage
+            self.gate_storage[prior_control]["applied"] = True
+            self.gate_storage[prior_target]["applied"] = True
+
+        elif isinstance(self.node_buffer, DAGOpNode):
+            print("Didn't find a prior, lets pull from storage")
+            prior = self.node_buffer
+            # prior = _transform_gate_for_layout(
+            #     prior, current_layout, canonical_register
+            # )  # ! Bad
             prior_control, prior_target = self.get_qubits_from_layout(
                 prior, current_layout
             )
@@ -352,8 +379,8 @@ class SabreSwap(TransformationPass):
             )
 
             # Update in storage
-            self.gate_storage[buffer_control]["applied"]
-            self.gate_storage[buffer_target]["applied"]
+            self.gate_storage[buffer_control]["applied"] = True
+            self.gate_storage[buffer_target]["applied"] = True
 
             self.node_buffer = None
 
@@ -430,7 +457,7 @@ class SabreSwap(TransformationPass):
         print(self.gate_storage)
         draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
         self.iteration += 1
-        # input()
+        ## input()
 
         if self.fake_run:
             return node
@@ -701,7 +728,8 @@ class SabreSwap(TransformationPass):
 
     def _apply_gate(self, mapped_dag, node, current_layout, canonical_register):
         # * zc Applies the gate onto the current dag, after transforming the gate
-        new_node = _transform_gate_for_layout(node, current_layout, canonical_register)
+        # new_node = _transform_gate_for_layout(node, current_layout, canonical_register)
+        new_node = node
         if self.fake_run:
             return new_node
         return mapped_dag.apply_operation_back(
