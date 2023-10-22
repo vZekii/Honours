@@ -38,9 +38,7 @@ from typing import Union
 
 logger = logging.getLogger(__name__)
 
-EXTENDED_SET_SIZE = (
-    20  # Size of lookahead window. TODO: set dynamically to len(current_layout)
-)
+EXTENDED_SET_SIZE = 20  # Size of lookahead window. TODO: set dynamically to len(current_layout)
 EXTENDED_SET_WEIGHT = 0.5  # Weight of lookahead window compared to front_layer.
 
 DECAY_RATE = 0.001  # Decay coefficient for penalizing serial swaps.
@@ -83,9 +81,7 @@ class SabreSwap(TransformationPass):
         self.iteration = 1
         # zc -------
 
-    def get_qubits_from_layout(
-        self, node: DAGOpNode, current_layout: Layout
-    ) -> Union[int, tuple[int, int]]:
+    def get_qubits_from_layout(self, node: DAGOpNode, current_layout: Layout) -> Union[int, tuple[int, int]]:
         if len(node.qargs) == 2:
             return (
                 current_layout._v2p[node.qargs[0]],
@@ -107,9 +103,7 @@ class SabreSwap(TransformationPass):
         current_layout: Layout,
         canonical_register: QuantumRegister,
     ):
-        gate_control, gate_target = self.get_qubits_from_layout(
-            new_node, current_layout
-        )
+        gate_control, gate_target = self.get_qubits_from_layout(new_node, current_layout)
 
         # we can make any qubits inbetween the gate a gap.
         self.insert_free_gaps(gate_control, gate_target)
@@ -133,23 +127,15 @@ class SabreSwap(TransformationPass):
                 # self.test_rule(mapped_dag, new_node)
 
                 prior = self.gate_storage[gate_control]["node"]
-                new_prior = _transform_gate_for_layout(
-                    prior, current_layout, canonical_register
-                )  # Addon
+                new_prior = _transform_gate_for_layout(prior, current_layout, canonical_register)  # Addon
                 print("new prior:", new_prior.qargs)
-                prior_control, prior_target = self.get_qubits_from_layout(
-                    prior, current_layout
-                )
-                print(
-                    f"new prior after layout: {self.get_qubits_from_layout(new_prior, current_layout)}"
-                )
+                prior_control, prior_target = self.get_qubits_from_layout(prior, current_layout)
+                print(f"new prior after layout: {self.get_qubits_from_layout(new_prior, current_layout)}")
                 print(f"prior gate on qubits {prior_control}, {prior_target}")
 
                 if self.apply_before(mapped_dag, prior, new_node):
                     print("we should apply the new node before")
-                    mapped_dag.apply_operation_back(
-                        new_node.op, new_node.qargs, new_node.cargs
-                    )
+                    mapped_dag.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
                     self.gap_storage[prior_control] = Gap.CONTROL
                     self.gap_storage[prior_target] = Gap.TARGET
 
@@ -199,16 +185,12 @@ class SabreSwap(TransformationPass):
                 # prior = _transform_gate_for_layout(
                 #     prior, current_layout, canonical_register
                 # )  # Addon
-                prior_control, prior_target = self.get_qubits_from_layout(
-                    prior, current_layout
-                )
+                prior_control, prior_target = self.get_qubits_from_layout(prior, current_layout)
                 print(f"prior gate on qubits {prior_control}, {prior_target}")
 
                 if self.apply_before(mapped_dag, prior, new_node):
                     print("we should apply the new node before")
-                    mapped_dag.apply_operation_back(
-                        new_node.op, new_node.qargs, new_node.cargs
-                    )
+                    mapped_dag.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
                     # self.gap_storage[gate_control] = Gap.FREE
                     self.gap_storage[prior_control] = Gap.CONTROL
                     self.gap_storage[prior_target] = Gap.TARGET
@@ -283,9 +265,7 @@ class SabreSwap(TransformationPass):
             # prior = _transform_gate_for_layout(
             #     prior, current_layout, canonical_register
             # )  # Addon
-            prior_control, prior_target = self.get_qubits_from_layout(
-                prior, current_layout
-            )
+            prior_control, prior_target = self.get_qubits_from_layout(prior, current_layout)
             mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             # update prior in storage
             self.gate_storage[prior_control]["applied"] = True
@@ -297,9 +277,7 @@ class SabreSwap(TransformationPass):
             # prior = _transform_gate_for_layout(
             #     prior, current_layout, canonical_register
             # )  # ! Bad
-            prior_control, prior_target = self.get_qubits_from_layout(
-                prior, current_layout
-            )
+            prior_control, prior_target = self.get_qubits_from_layout(prior, current_layout)
             mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             # update prior in storage
             self.gate_storage[prior_control]["applied"] = True
@@ -370,9 +348,7 @@ class SabreSwap(TransformationPass):
             )
 
             # TODO this will need to be ammended to allow for single qubit gates as well
-            buffer_control, buffer_target = self.get_qubits_from_layout(
-                self.node_buffer, current_layout
-            )
+            buffer_control, buffer_target = self.get_qubits_from_layout(self.node_buffer, current_layout)
             self.gap_storage[buffer_control], self.gap_storage[buffer_target] = (
                 Gap.CONTROL,
                 Gap.TARGET,
@@ -429,15 +405,11 @@ class SabreSwap(TransformationPass):
             # We first handle 2 qubit gates as they offer more in depth commutativity
             if node.op.name == "cx":  # cx = cnot gate
                 # Handle inter-cnot rules (swapping on same control or same target)
-                self.zc_handle_cnot(
-                    mapped_dag, node, current_layout, canonical_register
-                )
+                self.zc_handle_cnot(mapped_dag, node, current_layout, canonical_register)
 
             if node.op.name == "swap":
                 # Swap can trade places with any single qubit gate, or a flipped version of a cnot gate
-                self.zc_handle_swap(
-                    mapped_dag, node, current_layout, canonical_register
-                )
+                self.zc_handle_swap(mapped_dag, node, current_layout, canonical_register)
                 pass
         elif node.qargs == 1:
             if node.op.name == "rz":
@@ -449,9 +421,7 @@ class SabreSwap(TransformationPass):
                 pass
         else:
             # raise an exception as a backup
-            raise Exception(
-                f"Unexpected gate found when applying rules. qargs: {node.qargs}, op: {node.op.name}"
-            )
+            raise Exception(f"Unexpected gate found when applying rules. qargs: {node.qargs}, op: {node.op.name}")
 
         print(f"Current Gaps: {self.gap_storage}")
         print(self.gate_storage)
@@ -465,9 +435,7 @@ class SabreSwap(TransformationPass):
         #     new_node.op, new_node.qargs, new_node.cargs
         # )
 
-    def apply_before(
-        self, mapped_dag: DAGCircuit, prior_node: DAGOpNode, new_node: DAGOpNode
-    ) -> bool:
+    def apply_before(self, mapped_dag: DAGCircuit, prior_node: DAGOpNode, new_node: DAGOpNode) -> bool:
         trial1 = deepcopy(mapped_dag)
         trial1.apply_operation_back(prior_node.op, prior_node.qargs, prior_node.cargs)
         trial1.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
@@ -542,17 +510,11 @@ class SabreSwap(TransformationPass):
 
         # zc ---------
         # Doesnt need to be a class variable, as it is only used here in the initial setup
-        phy_qubits = [
-            current_layout._v2p[qubit] for qubit in dag.qubits
-        ]  # list of qubit nums e.g. [0, 1, 2, 3, 4, 5]
+        phy_qubits = [current_layout._v2p[qubit] for qubit in dag.qubits]  # list of qubit nums e.g. [0, 1, 2, 3, 4, 5]
 
-        self.gap_storage = {
-            qubit: Gap.FREE for qubit in phy_qubits
-        }  # Dictionary to store gap info
+        self.gap_storage = {qubit: Gap.FREE for qubit in phy_qubits}  # Dictionary to store gap info
 
-        self.gate_storage = {
-            idx: [] for idx in phy_qubits
-        }  # dictionary to store 2 qubit gates
+        self.gate_storage = {idx: [] for idx in phy_qubits}  # dictionary to store 2 qubit gates
 
         # zc ---------
 
@@ -601,9 +563,7 @@ class SabreSwap(TransformationPass):
             # * We can now apply the gates in the execute list
             if execute_gate_list:
                 for node in execute_gate_list:
-                    self._apply_gate_commutative(
-                        mapped_dag, node, current_layout, canonical_register
-                    )
+                    self._apply_gate_commutative(mapped_dag, node, current_layout, canonical_register)
                     # self._apply_gate(
                     #     mapped_dag, node, current_layout, canonical_register
                     # )
@@ -621,17 +581,11 @@ class SabreSwap(TransformationPass):
                 if do_expensive_logging:
                     logger.debug(
                         "free! %s",
-                        [
-                            (n.name if isinstance(n, DAGOpNode) else None, n.qargs)
-                            for n in execute_gate_list
-                        ],
+                        [(n.name if isinstance(n, DAGOpNode) else None, n.qargs) for n in execute_gate_list],
                     )
                     logger.debug(
                         "front_layer: %s",
-                        [
-                            (n.name if isinstance(n, DAGOpNode) else None, n.qargs)
-                            for n in front_layer
-                        ],
+                        [(n.name if isinstance(n, DAGOpNode) else None, n.qargs) for n in front_layer],
                     )
 
                 ops_since_progress = []
@@ -652,15 +606,11 @@ class SabreSwap(TransformationPass):
             for swap_qubits in self._obtain_swaps(front_layer, current_layout):
                 trial_layout = current_layout.copy()
                 trial_layout.swap(*swap_qubits)
-                score = self._score_heuristic(
-                    self.heuristic, front_layer, extended_set, trial_layout, swap_qubits
-                )
+                score = self._score_heuristic(self.heuristic, front_layer, extended_set, trial_layout, swap_qubits)
                 swap_scores[swap_qubits] = score
             min_score = min(swap_scores.values())
             best_swaps = [k for k, v in swap_scores.items() if v == min_score]
-            best_swaps.sort(
-                key=lambda x: (self._bit_indices[x[0]], self._bit_indices[x[1]])
-            )
+            best_swaps.sort(key=lambda x: (self._bit_indices[x[0]], self._bit_indices[x[1]]))
             best_swap = rng.choice(best_swaps)
             # swap_node = self._apply_gate(
             #     mapped_dag,
@@ -706,9 +656,7 @@ class SabreSwap(TransformationPass):
             # Diagnostics
             if do_expensive_logging:
                 logger.debug("SWAP Selection...")
-                logger.debug(
-                    "extended_set: %s", [(n.name, n.qargs) for n in extended_set]
-                )
+                logger.debug("extended_set: %s", [(n.name, n.qargs) for n in extended_set])
                 logger.debug("swap scores: %s", swap_scores)
                 logger.debug("best swap: %s", best_swap)
                 logger.debug("qubits decay: %s", self.qubits_decay)
@@ -732,9 +680,7 @@ class SabreSwap(TransformationPass):
         new_node = node
         if self.fake_run:
             return new_node
-        return mapped_dag.apply_operation_back(
-            new_node.op, new_node.qargs, new_node.cargs
-        )
+        return mapped_dag.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
 
     def _reset_qubits_decay(self):
         """Reset all qubit decay factors to 1 upon request (to forget about
@@ -807,9 +753,7 @@ class SabreSwap(TransformationPass):
                 physical = current_layout[virtual]
                 for neighbor in self.coupling_map.neighbors(physical):
                     virtual_neighbor = current_layout[neighbor]
-                    swap = sorted(
-                        [virtual, virtual_neighbor], key=lambda q: self._bit_indices[q]
-                    )
+                    swap = sorted([virtual, virtual_neighbor], key=lambda q: self._bit_indices[q])
                     candidate_swaps.add(tuple(swap))
         return candidate_swaps
 
@@ -819,13 +763,9 @@ class SabreSwap(TransformationPass):
         layout_map = layout._v2p
         target_node = min(
             front_layer,
-            key=lambda node: self.dist_matrix[
-                layout_map[node.qargs[0]], layout_map[node.qargs[1]]
-            ],
+            key=lambda node: self.dist_matrix[layout_map[node.qargs[0]], layout_map[node.qargs[1]]],
         )
-        for pair in _shortest_swap_path(
-            tuple(target_node.qargs), self.coupling_map, layout
-        ):
+        for pair in _shortest_swap_path(tuple(target_node.qargs), self.coupling_map, layout):
             self._apply_gate(dag, DAGOpNode(op=SwapGate(), qargs=pair), layout, qubits)
             layout.swap(*pair)
 
@@ -833,14 +773,10 @@ class SabreSwap(TransformationPass):
         cost = 0
         layout_map = layout._v2p
         for node in layer:
-            cost += self.dist_matrix[
-                layout_map[node.qargs[0]], layout_map[node.qargs[1]]
-            ]
+            cost += self.dist_matrix[layout_map[node.qargs[0]], layout_map[node.qargs[1]]]
         return cost
 
-    def _score_heuristic(
-        self, heuristic, front_layer, extended_set, layout, swap_qubits=None
-    ):
+    def _score_heuristic(self, heuristic, front_layer, extended_set, layout, swap_qubits=None):
         """Return a heuristic score for a trial layout.
 
         Assuming a trial layout has resulted from a SWAP, we now assign a cost
@@ -860,12 +796,7 @@ class SabreSwap(TransformationPass):
             return total_cost
 
         if heuristic == "decay":
-            return (
-                max(
-                    self.qubits_decay[swap_qubits[0]], self.qubits_decay[swap_qubits[1]]
-                )
-                * total_cost
-            )
+            return max(self.qubits_decay[swap_qubits[0]], self.qubits_decay[swap_qubits[1]]) * total_cost
 
         raise TranspilerError("Heuristic %s not recognized." % heuristic)
 
@@ -890,9 +821,7 @@ def _transform_gate_for_layout(op_node, layout, device_qreg):
     mapped_op_node = copy(op_node)
     mapped_op_node.qargs = tuple(device_qreg[layout._v2p[x]] for x in op_node.qargs)
 
-    print(
-        f"Transformed {op_node.op.name} from {op_node.qargs} to {mapped_op_node.qargs}"
-    )
+    print(f"Transformed {op_node.op.name} from {op_node.qargs} to {mapped_op_node.qargs}")
 
     return mapped_op_node
 
@@ -903,9 +832,7 @@ def _shortest_swap_path(target_qubits, coupling_map, layout):
     v_start, v_goal = target_qubits
     start, goal = layout._v2p[v_start], layout._v2p[v_goal]
     # TODO: remove the list call once using retworkx 0.12, as the return value can be sliced.
-    path = list(
-        retworkx.dijkstra_shortest_paths(coupling_map.graph, start, target=goal)[goal]
-    )
+    path = list(retworkx.dijkstra_shortest_paths(coupling_map.graph, start, target=goal)[goal])
     # Swap both qubits towards the "centre" (as opposed to applying the same swaps to one) to
     # parallelise and reduce depth.
     split = len(path) // 2
