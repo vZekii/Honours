@@ -58,9 +58,7 @@ def main() -> None:
 
     # print(f"Initial depth: {initial_depth}\nInitial 2 qubit gates: {initial_2q_gates}")
 
-    print(
-        f"Running routing pass with initial depth: {initial_depth} and {initial_2q_gates} 2 qubit gates"
-    )
+    print(f"Running routing pass with initial depth: {initial_depth} and {initial_2q_gates} 2 qubit gates")
 
     # Run the Sabre layout and get the initial mapping
     mapped_circuit = pm.run(circuit_in)
@@ -87,6 +85,8 @@ def main() -> None:
     draw_dag(ouput_dag, filename=f"debug/dag_out.png")
 
     print(ouput_dag.properties())
+    output_depth = ouput_dag.properties()["depth"]
+    print(f"Depth change: {output_depth - initial_depth} ({(output_depth / initial_depth)*100:.2f}%)")
 
 
 if __name__ == "__main__":
