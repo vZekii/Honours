@@ -47,15 +47,16 @@ DECAY_RESET_INTERVAL = 5  # How often to reset all decay rates to 1.
 from enum import Enum
 
 # Dummy putting gate here as it will be used to handle single gates later on
-Gap = Enum("Gap", "GATE TARGET CONTROL FREE SWAP")
+Gap = Enum("Gap", "GATE TARGET CONTROL FREE SWAP RZ RX U")
 
 
-def get_qubits_from_layout(node: DAGOpNode, current_layout: Layout) -> Union[tuple[int], tuple[int, int]]:
+def get_qubits_from_layout(node: DAGOpNode, current_layout: Layout) -> Union[int, tuple[int, int]]:
     """Get the associated qubits that the gate is being applied on"""
     if len(node.qargs) == 2:
         return (current_layout._v2p[node.qargs[0]], current_layout._v2p[node.qargs[1]])
 
-    return (current_layout._v2p[node.qargs],)
+    # ! Fix this to return a type that is the same as above, probably switch to list
+    return current_layout._v2p[node.qargs[0]]
 
 
 def apply_on_dag(dag: DAGCircuit, gate: DAGOpNode) -> None:
@@ -71,6 +72,10 @@ class GateStorage:
 
     def add_gate(self, gate: DAGOpNode, layout: Layout, applied=False) -> None:
         """Add a new gate to the storage, as applied or not"""
+        if len(gate.qargs) == 1:
+            self.storage[get_qubits_from_layout(gate, layout)] = {"gate": gate, "applied": applied}
+            return
+
         for qubit in get_qubits_from_layout(gate, layout):
             self.storage[qubit] = {"gate": gate, "applied": applied}
 
@@ -83,6 +88,15 @@ class GateStorage:
 
     def mark_applied(self, gate: DAGOpNode, layout: Layout):
         """Mark the input gate as applied on each qubit"""
+
+        # ! genuinely so gross
+        if len(gate.qargs) == 1:
+            qubit = get_qubits_from_layout(gate, layout)
+            if qubit in self.storage:
+                self.storage[qubit]["applied"] = True
+
+            return
+
         for qubit in get_qubits_from_layout(gate, layout):
             if qubit in self.storage:
                 self.storage[qubit]["applied"] = True
@@ -153,7 +167,9 @@ class SabreSwap(TransformationPass):
         )
 
         # * Begin main logic here
-        # * The "and" is required here to ensure that the 2 gates are not applied on the same qubits, as there would be no option there.
+
+        # Check if the new gate's control lies on the same line as a previous gates control, and their targets don't match - and the gate hasn't been applied yet
+        # Implements Inter-CNOT Rule A
         if (
             self.gap_storage[gate_control] == Gap.CONTROL
             and self.gap_storage[gate_target] != Gap.TARGET
@@ -194,6 +210,8 @@ class SabreSwap(TransformationPass):
 
             return
 
+        # Check if the new gate's target lies on the same line as a previous gates target, and their controls don't match - and the gate hasn't been applied yet
+        # Implements Inter-CNOT Rule B
         if (
             self.gap_storage[gate_target] == Gap.TARGET
             and self.gap_storage[gate_control] != Gap.CONTROL
@@ -253,17 +271,19 @@ class SabreSwap(TransformationPass):
                 print("prior on target wasn't applied")
                 prior = self.gate_storage.get_gate(gate_target)
 
+        # Handles the case where there isn't an applicable gate, and applies the current gate in the buffer (or last gate)
         if isinstance(self.node_buffer, DAGOpNode) and prior is None:
             print("Didn't find a prior, lets pull from storage")
             prior = self.node_buffer
 
         if prior:
-            print("found a prior and doing weird stuff")
+            print("found a prior and applying it")
             # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             apply_on_dag(mapped_dag, prior)
             # update prior in storage
             self.gate_storage.mark_applied(prior, current_layout)
 
+        # This code below is only if it's the first gate to be seen - or if the buffer is cleared for whatever reason
         self.gate_storage.add_gate(new_node, current_layout)
 
         # the new node is now also the last applied
@@ -280,11 +300,20 @@ class SabreSwap(TransformationPass):
             apply_on_dag(mapped_dag, self.node_buffer)
 
             # TODO this will need to be ammended to allow for single qubit gates as well
-            buffer_control, buffer_target = get_qubits_from_layout(self.node_buffer, current_layout)
-            self.gap_storage[buffer_control], self.gap_storage[buffer_target] = (
-                Gap.CONTROL,
-                Gap.TARGET,
-            )
+            if len(self.node_buffer.qargs) == 2:
+                # It's a cnot gate for now but will need to adjust
+                buffer_control, buffer_target = get_qubits_from_layout(self.node_buffer, current_layout)
+                self.gap_storage[buffer_control], self.gap_storage[buffer_target] = (
+                    Gap.CONTROL,
+                    Gap.TARGET,
+                )
+            else:
+                buffer_qubit = get_qubits_from_layout(self.node_buffer, current_layout)
+                # ! super duper ultra gross
+                if self.gate_storage.get_gate(buffer_qubit).op.name == "rz":
+                    self.gap_storage[buffer_qubit] = Gap.RZ
+                else:
+                    self.gap_storage[buffer_qubit] = Gap.RX
 
             # Update in storage
             self.gate_storage.mark_applied(self.node_buffer, current_layout)
@@ -311,6 +340,125 @@ class SabreSwap(TransformationPass):
         # TODO apply swap commutation rules
         apply_on_dag(mapped_dag, swap_node)
 
+    def zc_handle_rz(self, mapped_dag: DAGCircuit, rz_node: DAGOpNode, current_layout: Layout):
+        # Need to handle the situation where the rz gate comes after the CNOT gate
+
+        qubit = get_qubits_from_layout(rz_node, current_layout)
+
+        # Handle the on control situation
+        if self.gap_storage[qubit] == Gap.CONTROL and not self.gate_storage.is_applied(qubit):
+            prior = self.gate_storage.get_gate(qubit)
+            if self.apply_before(mapped_dag, prior, rz_node):
+                # apply the rz node first
+                apply_on_dag(mapped_dag, rz_node)
+
+                # We know it's a CNOT gate due to the first part of the if statement
+                prior_control, prior_target = get_qubits_from_layout(prior, current_layout)
+                self.gap_storage[prior_control] = Gap.CONTROL
+                self.gap_storage[prior_target] = Gap.TARGET
+                return
+
+            # Apply the rz node after
+            apply_on_dag(mapped_dag, prior)
+            self.gap_storage[qubit] = Gap.RZ
+
+            # update prior in storage
+            self.gate_storage.mark_applied(prior, current_layout)
+
+            # and put the new gate in
+            self.gate_storage.add_gate(rz_node, current_layout)
+
+            # the new node is now also the last applied
+            self.node_buffer = rz_node
+            return
+
+        # Apply the node otherwise
+        # TODO make this a global function
+        prior = None
+        if self.gate_storage.get_gate(qubit) is not None and prior is None:
+            # Prior gate on the target
+            if not self.gate_storage.is_applied(qubit):
+                print("prior on target wasn't applied")
+                prior = self.gate_storage.get_gate(qubit)
+
+        # Handles the case where there isn't an applicable gate, and applies the current gate in the buffer (or last gate)
+        if isinstance(self.node_buffer, DAGOpNode) and prior is None:
+            print("Didn't find a prior, lets pull from storage")
+            prior = self.node_buffer
+
+        if prior:
+            print("found a prior and applying it")
+            # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+            apply_on_dag(mapped_dag, prior)
+            # update prior in storage
+            self.gate_storage.mark_applied(prior, current_layout)
+
+        # This code below is only if it's the first gate to be seen - or if the buffer is cleared for whatever reason
+        self.gate_storage.add_gate(rz_node, current_layout)
+
+        # the new node is now also the last applied
+        self.node_buffer = rz_node
+        self.gap_storage[qubit] = Gap.RZ
+
+    def zc_handle_rx(self, mapped_dag: DAGCircuit, rx_node: DAGOpNode, current_layout: Layout):
+        # Need to handle the situation where the rz gate comes after the CNOT gate
+
+        qubit = get_qubits_from_layout(rx_node, current_layout)
+
+        if self.gap_storage[qubit] == Gap.TARGET and not self.gate_storage.is_applied(qubit):
+            prior = self.gate_storage.get_gate(qubit)
+            if self.apply_before(mapped_dag, prior, rx_node):
+                # apply the rx node first
+                apply_on_dag(mapped_dag, rx_node)
+
+                # We know it's a CNOT gate due to the first part of the if statement
+                prior_control, prior_target = get_qubits_from_layout(prior, current_layout)
+                self.gap_storage[prior_control] = Gap.CONTROL
+                self.gap_storage[prior_target] = Gap.TARGET
+                return
+
+            # Apply the rx node after
+            apply_on_dag(mapped_dag, prior)
+            self.gap_storage[qubit] = Gap.RX
+
+            # update prior in storage
+            self.gate_storage.mark_applied(prior, current_layout)
+
+            # and put the new gate in
+            self.gate_storage.add_gate(rx_node, current_layout)
+
+            # the new node is now also the last applied
+            self.node_buffer = rx_node
+            return
+
+        # Apply the node otherwise
+        # TODO make this a global function
+        prior = None
+        if self.gate_storage.get_gate(qubit) is not None and prior is None:
+            # Prior gate on the target
+            if not self.gate_storage.is_applied(qubit):
+                print("prior on target wasn't applied")
+                prior = self.gate_storage.get_gate(qubit)
+
+        # Handles the case where there isn't an applicable gate, and applies the current gate in the buffer (or last gate)
+        if isinstance(self.node_buffer, DAGOpNode) and prior is None:
+            print("Didn't find a prior, lets pull from storage")
+            prior = self.node_buffer
+
+        if prior:
+            print("found a prior and applying it")
+            # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
+            apply_on_dag(mapped_dag, prior)
+            # update prior in storage
+            self.gate_storage.mark_applied(prior, current_layout)
+
+        # This code below is only if it's the first gate to be seen - or if the buffer is cleared for whatever reason
+        self.gate_storage.add_gate(rx_node, current_layout)
+
+        # the new node is now also the last applied
+        self.node_buffer = rx_node
+        self.gap_storage[qubit] = Gap.RX
+
     def _apply_gate_commutative(
         self, mapped_dag: DAGCircuit, node: DAGOpNode, current_layout: Layout, canonical_register: QuantumRegister
     ):
@@ -332,13 +480,13 @@ class SabreSwap(TransformationPass):
                 # Swap can trade places with any single qubit gate, or a flipped version of a cnot gate
                 self.zc_handle_swap(mapped_dag, node, current_layout)
                 pass
-        elif node.qargs == 1:
+        elif len(node.qargs) == 1:
             if node.op.name == "rz":
                 # TODO implement rz
-                pass
+                self.zc_handle_rz(mapped_dag, node, current_layout)
             if node.op.name == "rx":
                 # TODO implement rx
-                pass
+                self.zc_handle_rx(mapped_dag, node, current_layout)
             else:
                 # TODO implement U (this is just swap gates i reckon)
                 # Handle non specific "U" gates here.
@@ -347,8 +495,8 @@ class SabreSwap(TransformationPass):
             # raise an exception as a backup
             raise Exception(f"Unexpected gate found when applying rules. qargs: {node.qargs}, op: {node.op.name}")
 
-        # print(f"Current Gaps: {self.gap_storage}")
-        # print(self.gate_storage)
+        for i, gap in enumerate(self.gap_storage):
+            print(f"gap: {self.gap_storage[i]}, gate: {self.gate_storage.storage[i]}")
         draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
         self.iteration += 1
         ## input()
