@@ -1,26 +1,29 @@
 # Main file
 # author: Zach Clare
 
-# Main research imports
-# from ZCswap import SabreSwap
-from ZCswap_gaps import SabreSwap
-from helpers import draw_dag, draw_circuit
-from qiskit.transpiler.passes import SabreLayout
-import ag
+import os
+
+import numpy as np
+from qiskit import QuantumCircuit, QuantumRegister
+from qiskit.circuit.library.standard_gates.swap import SwapGate
+from qiskit.converters import circuit_to_dag, dag_to_circuit
+from qiskit.transpiler import CouplingMap, PassManager
 
 # Required qiskit libraries and tools
 from qiskit.transpiler.passes import (
-    Decompose,
     ApplyLayout,
     CommutationAnalysis,
     CommutativeCancellation,
+    Decompose,
+    SabreLayout,
 )
-from qiskit.transpiler import CouplingMap, PassManager
-from qiskit import QuantumCircuit, QuantumRegister
-from qiskit.converters import circuit_to_dag, dag_to_circuit
-from qiskit.circuit.library.standard_gates.swap import SwapGate
-import numpy as np
-import os
+
+import ag
+from helpers import draw_circuit, draw_dag
+
+# Main research imports
+# from ZCswap import SabreSwap
+from ZCswap_gaps import SabreSwap
 
 
 def main() -> None:

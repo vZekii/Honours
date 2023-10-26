@@ -15,24 +15,24 @@
 import logging
 from collections import defaultdict
 from copy import copy, deepcopy
+from typing import Optional, Union
 
 import numpy as np
 import retworkx
-
+from qiskit import QuantumRegister
 from qiskit.circuit.library.standard_gates import SwapGate
-from qiskit.transpiler.basepasses import TransformationPass
-from qiskit.transpiler.exceptions import TranspilerError
-from qiskit.transpiler.layout import Layout
+from qiskit.converters import dag_to_circuit
 from qiskit.dagcircuit import DAGOpNode
 
 # zc ---------
 from qiskit.dagcircuit.dagcircuit import DAGCircuit  # better for debugging
-from qiskit import QuantumRegister
+from qiskit.transpiler.basepasses import TransformationPass
+from qiskit.transpiler.exceptions import TranspilerError
+from qiskit.transpiler.layout import Layout
 from rich import print
 from rich.panel import Panel
+
 from helpers import draw_circuit
-from qiskit.converters import dag_to_circuit
-from typing import Union, Optional
 
 # zc ---------
 
@@ -148,7 +148,7 @@ class SabreSwap(TransformationPass):
     def insert_free_gaps(self, qarg1: int, qarg2: int) -> None:
         """Fill any gaps between 2 qubit nodes with free space"""
         for i in range(min(qarg1, qarg2) + 1, max(qarg1, qarg2)):
-            print(f"{i} is free")
+            # print(f"{i} is free")
             self.gap_storage[i] = Gap.FREE
 
     def zc_handle_cnot(self, mapped_dag: DAGCircuit, new_node: DAGOpNode, current_layout: Layout):
@@ -159,12 +159,12 @@ class SabreSwap(TransformationPass):
         # we can make any qubits inbetween the gate a gap.
         self.insert_free_gaps(gate_control, gate_target)
 
-        print(
-            Panel(
-                f"{self.iteration}: Attempting application of {new_node.name} gate on control {gate_control} and target {gate_target}",
-                highlight=True,
-            )
-        )
+        # print(
+        #     Panel(
+        #         f"{self.iteration}: Attempting application of {new_node.name} gate on control {gate_control} and target {gate_target}",
+        #         highlight=True,
+        #     )
+        # )
 
         # * Begin main logic here
 
@@ -175,14 +175,14 @@ class SabreSwap(TransformationPass):
             and self.gap_storage[gate_target] != Gap.TARGET
             and not self.gate_storage.is_applied(gate_control)
         ):
-            print(f"Found potential control match on qubit {gate_control}")
+            # print(f"Found potential control match on qubit {gate_control}")
 
             prior = self.gate_storage.get_gate(gate_control)
             prior_control, prior_target = get_qubits_from_layout(prior, current_layout)
-            print(f"prior gate on qubits {prior_control}, {prior_target}")
+            # print(f"prior gate on qubits {prior_control}, {prior_target}")
 
             if self.apply_before(mapped_dag, prior, new_node):
-                print("we should apply the new node before")
+                # print("we should apply the new node before")
                 # mapped_dag.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
                 apply_on_dag(mapped_dag, new_node)
                 self.gap_storage[prior_control] = Gap.CONTROL
@@ -191,7 +191,7 @@ class SabreSwap(TransformationPass):
                 # since we applied the prior gate second, the storage doesn't have to update
                 return
 
-            print("we should do it the same way")
+            # print("we should do it the same way")
             # Apply the prior gate and save the new one
             # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             apply_on_dag(mapped_dag, prior)
@@ -217,14 +217,14 @@ class SabreSwap(TransformationPass):
             and self.gap_storage[gate_control] != Gap.CONTROL
             and not self.gate_storage.is_applied(gate_target)
         ):
-            print(f"Found potential target match on qubit {gate_target}")
+            # print(f"Found potential target match on qubit {gate_target}")
 
             prior = self.gate_storage.get_gate(gate_target)
             prior_control, prior_target = get_qubits_from_layout(prior, current_layout)
-            print(f"prior gate on qubits {prior_control}, {prior_target}")
+            # print(f"prior gate on qubits {prior_control}, {prior_target}")
 
             if self.apply_before(mapped_dag, prior, new_node):
-                print("we should apply the new node before")
+                # print("we should apply the new node before")
                 # mapped_dag.apply_operation_back(new_node.op, new_node.qargs, new_node.cargs)
                 apply_on_dag(mapped_dag, new_node)
                 # self.gap_storage[gate_control] = Gap.FREE
@@ -235,7 +235,7 @@ class SabreSwap(TransformationPass):
                 # * If we decide to remove the gap storage, we'll need to add the new gate applied to the storage
                 return
 
-            print("we should do it the same way")
+            # print("we should do it the same way")
             # Apply the prior gate and save the new one
             # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             apply_on_dag(mapped_dag, prior)
@@ -262,22 +262,22 @@ class SabreSwap(TransformationPass):
         if self.gate_storage.get_gate(gate_control) is not None and prior is None:
             # Prior gate on the control
             if not self.gate_storage.is_applied(gate_control):
-                print("prior on control wasn't applied")
+                # print("prior on control wasn't applied")
                 prior = self.gate_storage.get_gate(gate_control)
 
         if self.gate_storage.get_gate(gate_target) is not None and prior is None:
             # Prior gate on the target
             if not self.gate_storage.is_applied(gate_target):
-                print("prior on target wasn't applied")
+                # print("prior on target wasn't applied")
                 prior = self.gate_storage.get_gate(gate_target)
 
         # Handles the case where there isn't an applicable gate, and applies the current gate in the buffer (or last gate)
         if isinstance(self.node_buffer, DAGOpNode) and prior is None:
-            print("Didn't find a prior, lets pull from storage")
+            # print("Didn't find a prior, lets pull from storage")
             prior = self.node_buffer
 
         if prior:
-            print("found a prior and applying it")
+            # print("found a prior and applying it")
             # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             apply_on_dag(mapped_dag, prior)
             # update prior in storage
@@ -331,7 +331,7 @@ class SabreSwap(TransformationPass):
         #             storage_node, current_layout, canonical_register
         #         )
 
-        print(Panel(f"{self.iteration}: Applying SWAP gate on qubits {targ1} and {targ2}"))
+        # print(Panel(f"{self.iteration}: Applying SWAP gate on qubits {targ1} and {targ2}"))
 
         # modify the gaps to include swap
         self.gap_storage[targ1], self.gap_storage[targ2] = Gap.SWAP, Gap.SWAP
@@ -378,16 +378,16 @@ class SabreSwap(TransformationPass):
         if self.gate_storage.get_gate(qubit) is not None and prior is None:
             # Prior gate on the target
             if not self.gate_storage.is_applied(qubit):
-                print("prior on target wasn't applied")
+                # print("prior on target wasn't applied")
                 prior = self.gate_storage.get_gate(qubit)
 
         # Handles the case where there isn't an applicable gate, and applies the current gate in the buffer (or last gate)
         if isinstance(self.node_buffer, DAGOpNode) and prior is None:
-            print("Didn't find a prior, lets pull from storage")
+            # print("Didn't find a prior, lets pull from storage")
             prior = self.node_buffer
 
         if prior:
-            print("found a prior and applying it")
+            # print("found a prior and applying it")
             # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             apply_on_dag(mapped_dag, prior)
             # update prior in storage
@@ -437,16 +437,16 @@ class SabreSwap(TransformationPass):
         if self.gate_storage.get_gate(qubit) is not None and prior is None:
             # Prior gate on the target
             if not self.gate_storage.is_applied(qubit):
-                print("prior on target wasn't applied")
+                # print("prior on target wasn't applied")
                 prior = self.gate_storage.get_gate(qubit)
 
         # Handles the case where there isn't an applicable gate, and applies the current gate in the buffer (or last gate)
         if isinstance(self.node_buffer, DAGOpNode) and prior is None:
-            print("Didn't find a prior, lets pull from storage")
+            # print("Didn't find a prior, lets pull from storage")
             prior = self.node_buffer
 
         if prior:
-            print("found a prior and applying it")
+            # print("found a prior and applying it")
             # mapped_dag.apply_operation_back(prior.op, prior.qargs, prior.cargs)
             apply_on_dag(mapped_dag, prior)
             # update prior in storage
@@ -495,9 +495,9 @@ class SabreSwap(TransformationPass):
             # raise an exception as a backup
             raise Exception(f"Unexpected gate found when applying rules. qargs: {node.qargs}, op: {node.op.name}")
 
-        for i, gap in enumerate(self.gap_storage):
-            print(f"gap: {self.gap_storage[i]}, gate: {self.gate_storage.storage[i]}")
-        draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
+        # for i, gap in enumerate(self.gap_storage):
+        #     print(f"gap: {self.gap_storage[i]}, gate: {self.gate_storage.storage[i]}")
+        # draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
         self.iteration += 1
         ## input()
 
@@ -895,7 +895,7 @@ def _transform_gate_for_layout(op_node, layout, device_qreg):
     mapped_op_node = copy(op_node)
     mapped_op_node.qargs = tuple(device_qreg[layout._v2p[x]] for x in op_node.qargs)
 
-    print(f"Transformed {op_node.op.name} from {op_node.qargs} to {mapped_op_node.qargs}")
+    # print(f"Transformed {op_node.op.name} from {op_node.qargs} to {mapped_op_node.qargs}")
 
     return mapped_op_node
 
