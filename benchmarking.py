@@ -59,6 +59,8 @@ def main() -> None:
             print(f"Zach out: {zachc_output.properties()}")
             print(f"Sabre out: {sabre_output.properties()}")
 
+            quit()
+
 
 if __name__ == "__main__":
     main()

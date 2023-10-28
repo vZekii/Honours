@@ -13,7 +13,7 @@
 """Routing via SWAP insertion using the SABRE method from Li et al."""
 
 import logging
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from copy import copy, deepcopy
 from typing import Optional, Union
 
@@ -23,8 +23,6 @@ from qiskit import QuantumRegister
 from qiskit.circuit.library.standard_gates import SwapGate
 from qiskit.converters import dag_to_circuit
 from qiskit.dagcircuit import DAGOpNode
-
-# zc ---------
 from qiskit.dagcircuit.dagcircuit import DAGCircuit  # better for debugging
 from qiskit.transpiler.basepasses import TransformationPass
 from qiskit.transpiler.exceptions import TranspilerError
@@ -33,8 +31,6 @@ from rich import print
 from rich.panel import Panel
 
 from helpers import draw_circuit
-
-# zc ---------
 
 logger = logging.getLogger(__name__)
 
@@ -63,24 +59,27 @@ def apply_on_dag(dag: DAGCircuit, gate: DAGOpNode) -> None:
 
 
 class GateStorage:
-    storage: dict[int, dict[str, Union[DAGOpNode, bool]]]
+    storage: OrderedDict[int, dict[str, Union[DAGOpNode, bool]]]
 
-    def __init__(self, qubits: int) -> None:
-        self.storage = {idx: {"gate": None, "applied": False} for idx in qubits}
+    def __init__(self, qubits: list[int]) -> None:
+        # self.storage = {idx: {"gate": None, "applied": False} for idx in qubits}
+        self.storage = OrderedDict.fromkeys(qubits, {"gate": None, "applied": False})
 
     def add_gate(self, gate: DAGOpNode, layout: Layout, applied=False) -> None:
         """Add a new gate to the storage, as applied or not"""
         for qubit in get_qubits_from_layout(gate, layout):
             self.storage[qubit] = {"gate": gate, "applied": applied}
+            # move the most recently applied gates to the end to allow for easy final application
+            self.storage.move_to_end(qubit)
 
-    def get_gate(self, qubit: int):
+    def get_gate(self, qubit: int) -> Optional[DAGOpNode]:
         """Fetch the gate thats on a certain qubit"""
         gate_info = self.storage.get(qubit, None)
         if gate_info:
             return gate_info["gate"]
         return None
 
-    def mark_applied(self, gate: DAGOpNode, layout: Layout):
+    def mark_applied(self, gate: DAGOpNode, layout: Layout) -> None:
         """Mark the input gate as applied on each qubit"""
         for qubit in get_qubits_from_layout(gate, layout):
             if qubit in self.storage:
@@ -96,6 +95,10 @@ class GateStorage:
             self.storage[qubit_2],
             self.storage[qubit_1],
         )
+
+    def remove_gate(self, gate: DAGOpNode, layout: Layout) -> None:
+        for qubit in get_qubits_from_layout(gate, layout):
+            self.storage[qubit] = {"gate": None, "applied": False}
 
     def __str__(self):
         return self.storage.__str__()
@@ -152,6 +155,86 @@ class SabreSwap(TransformationPass):
             apply_on_dag(mapped_dag, prior)
             # update prior in storage
             self.gate_storage.mark_applied(prior, layout)
+
+    def get_prior(self, new_node: DAGOpNode, current_layout: Layout) -> list[DAGOpNode]:
+        # Get the prior gates of the new node
+        priors = []
+        for qubit in get_qubits_from_layout(new_node, current_layout):
+            prior = self.gate_storage.get_gate(qubit)
+            if prior is not None:
+                priors.append(prior)
+
+        p1, p2 = 0, 0
+        if len(priors) == 2 and None not in priors:
+            for i, (key, value) in enumerate(self.gate_storage.storage.items()):
+                print(key, value["gate"])
+                if value["gate"] == priors[0]:
+                    p1 = i
+                    print(f"We got a match at {i}")
+                elif value["gate"] == priors[1]:
+                    p2 = i
+                    print(f"Other found at {i}")
+
+        if p2 > p1:
+            # if the gate comes before, swap them
+            priors = priors[::-1]
+
+        # return it sorted by how many qubits the gate span, with smaller being returned first
+        # sorted(priors, key=lambda x: x.op.num_qubits)
+        return priors
+
+    def zc_handle_single_universal(self, mapped_dag: DAGCircuit, new_node: DAGOpNode, current_layout: Layout):
+        qubit = get_qubits_from_layout(new_node, current_layout)[0]
+
+        prior = self.gate_storage.get_gate(qubit)
+        if prior is not None:
+            # if it has a prior gate, we need to remove and replace it
+            apply_on_dag(mapped_dag, prior)
+            self.gate_storage.remove_gate(prior, current_layout)
+            self.gate_storage.add_gate(new_node, current_layout)
+            return
+
+        # if theres no prior we just store it
+        self.gate_storage.add_gate(new_node, current_layout)
+
+    def zc_handle_cnot_new(self, mapped_dag: DAGCircuit, new_node: DAGOpNode, current_layout: Layout):
+        priors = self.get_prior(new_node, current_layout)
+        if len(priors) == 2 and None not in priors:
+            print(priors)
+            print(self.gate_storage.storage)
+
+        for qubit in get_qubits_from_layout(new_node, current_layout):
+            prior = self.gate_storage.get_gate(qubit)
+            if prior is not None:
+                print(f"Found {prior} on qubit {qubit}")
+                if self.apply_before(mapped_dag, prior, new_node):
+                    print("Applying it first")
+                    apply_on_dag(mapped_dag, new_node)
+                    # Prior is still unapplied, so we leave it
+                    return
+
+                print("Better to apply it after")
+                # Apply the prior first as we can't apply a rule
+                apply_on_dag(mapped_dag, prior)
+                self.gate_storage.remove_gate(prior, current_layout)
+                self.gate_storage.add_gate(new_node, current_layout)
+                return
+
+        
+
+        print("no matches so we just save it for now")
+        self.gate_storage.add_gate(new_node, current_layout)
+
+        # new_control, new_target = get_qubits_from_layout(new_node, current_layout)
+        # prior_control = self.gate_storage.get_gate(new_control)
+        # prior_target = self.gate_storage.get_gate(new_target)
+
+        # if prior_control is not None:  # Could be none or a gate
+        #     if prior_control.op.name == "cx":
+
+        #     if prior_control.op.name == "swap":
+        #         pass
+        #     # Put other if statements here for other gates
 
     def zc_handle_cnot(self, mapped_dag: DAGCircuit, new_node: DAGOpNode, current_layout: Layout):
         """Apply a CNOT gate to the circuit, attempting to apply any commutativity rules"""
@@ -271,6 +354,9 @@ class SabreSwap(TransformationPass):
             Gap.CONTROL,
             Gap.TARGET,
         )
+
+    def zc_handle_swap_new(self, mapped_dag: DAGCircuit, swap_node: DAGOpNode, current_layout: Layout):
+        
 
     def zc_handle_swap(self, mapped_dag: DAGCircuit, swap_node: DAGOpNode, current_layout: Layout):
         # ! quick hack to quick apply the last gate in storage
@@ -411,35 +497,41 @@ class SabreSwap(TransformationPass):
         # First change the gate depending on the layout, This transformation seems to be all thats required
         node = _transform_gate_for_layout(node, current_layout, canonical_register)
 
+        print(Panel(f"{self.iteration}: {node.op.name} on qubits {get_qubits_from_layout(node, current_layout)}"))
+
         # * We first need to figure out what gate it is, and what options we have in terms of commutativity
+        # self.zc_handle_cnot_new(mapped_dag, node, current_layout)
+
         if len(node.qargs) == 2:
             # We first handle 2 qubit gates as they offer more in depth commutativity
             if node.op.name == "cx":  # cx = cnot gate
                 # Handle inter-cnot rules (swapping on same control or same target)
-                self.zc_handle_cnot(mapped_dag, node, current_layout)
+                # self.zc_handle_cnot(mapped_dag, node, current_layout)
+                self.zc_handle_cnot_new(mapped_dag, node, current_layout)
 
-            if node.op.name == "swap":
+            elif node.op.name == "swap":
                 # Swap can trade places with any single qubit gate, or a flipped version of a cnot gate
-                self.zc_handle_swap(mapped_dag, node, current_layout)
-                pass
+                # self.zc_handle_swap(mapped_dag, node, current_layout)
+                self.zc_handle_cnot_new(mapped_dag, node, current_layout)
         elif len(node.qargs) == 1:
-            if node.op.name == "rz":
-                # TODO implement rz
-                self.zc_handle_rz(mapped_dag, node, current_layout)
-            if node.op.name == "rx":
-                # TODO implement rx
-                self.zc_handle_rx(mapped_dag, node, current_layout)
-            else:
-                # TODO implement U (this is just swap gates i reckon)
-                # Handle non specific "U" gates here.
-                pass
+            # if node.op.name == "rz":
+            #     self.zc_handle_rz(mapped_dag, node, current_layout)
+            # if node.op.name == "rx":
+            #     self.zc_handle_rx(mapped_dag, node, current_layout)
+            # else:
+            #     # TODO implement U (this is just swap gates i reckon)
+            #     # Handle non specific "U" gates here.
+            #     pass
+            self.zc_handle_single_universal(mapped_dag, node, current_layout)
         else:
             # raise an exception as a backup
             raise Exception(f"Unexpected gate found when applying rules. qargs: {node.qargs}, op: {node.op.name}")
 
+        print("After:")
         # for i, gap in enumerate(self.gap_storage):
-        #     print(f"gap: {self.gap_storage[i]}, gate: {self.gate_storage.storage[i]}")
-        # draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
+        #     print(f"gap: {self.gap_storage[i]}, gate: {self.gate_storage.storage[i]['gate']}")
+        print(self.gate_storage.storage)
+        draw_circuit(dag_to_circuit(mapped_dag), f"output{self.iteration}")
         self.iteration += 1
         ## input()
 
@@ -531,6 +623,7 @@ class SabreSwap(TransformationPass):
 
         self.gate_storage = GateStorage(phy_qubits)  # dictionary to store 2 qubit gates
 
+        test = []
         # zc ---------
 
         while front_layer:
@@ -578,6 +671,7 @@ class SabreSwap(TransformationPass):
             # * We can now apply the gates in the execute list
             if execute_gate_list:
                 for node in execute_gate_list:
+                    test.append(node)
                     self._apply_gate_commutative(mapped_dag, node, current_layout, canonical_register)
                     # self._apply_gate(
                     #     mapped_dag, node, current_layout, canonical_register
@@ -641,9 +735,6 @@ class SabreSwap(TransformationPass):
                 canonical_register,
             )
 
-            # zc --------------
-
-            # zc -----------
             p0, p1 = (
                 current_layout._v2p[best_swap[0]],
                 current_layout._v2p[best_swap[1]],
@@ -678,12 +769,24 @@ class SabreSwap(TransformationPass):
                 logger.debug("qubits decay: %s", self.qubits_decay)
 
         # Apply the last gate
-        self._apply_gate(
-            mapped_dag,
-            self.node_buffer,
-            current_layout,
-            canonical_register,
-        )
+        # self._apply_gate(
+        #     mapped_dag,
+        #     self.node_buffer,
+        #     current_layout,
+        #     canonical_register,
+        # )
+        print(f"Final storage: {self.gate_storage}")
+
+        applied = [None]
+        for qubit, info in reversed(self.gate_storage.storage.items()):
+            gate = info["gate"]
+            print(gate)
+            if gate not in applied:
+                applied.append(gate)
+                print("added new")
+                self._apply_gate(mapped_dag, gate, current_layout, canonical_register)
+                continue
+            print("already in there")
 
         self.property_set["final_layout"] = current_layout
         if not self.fake_run:
