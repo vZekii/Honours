@@ -199,28 +199,26 @@ class SabreSwap(TransformationPass):
 
     def zc_handle_cnot_new(self, mapped_dag: DAGCircuit, new_node: DAGOpNode, current_layout: Layout):
         priors = self.get_prior(new_node, current_layout)
-        if len(priors) == 2 and None not in priors:
-            print(priors)
-            print(self.gate_storage.storage)
-
-        for qubit in get_qubits_from_layout(new_node, current_layout):
-            prior = self.gate_storage.get_gate(qubit)
-            if prior is not None:
-                print(f"Found {prior} on qubit {qubit}")
-                if self.apply_before(mapped_dag, prior, new_node):
-                    print("Applying it first")
-                    apply_on_dag(mapped_dag, new_node)
-                    # Prior is still unapplied, so we leave it
-                    return
-
-                print("Better to apply it after")
-                # Apply the prior first as we can't apply a rule
+        for prior in priors:
+            print(f"handling prior gate on {get_qubits_from_layout(prior, current_layout)}")
+            if len(priors) == 2:  # we need to apply the other gate first
+                print("Applying 2nd gate first")
                 apply_on_dag(mapped_dag, prior)
                 self.gate_storage.remove_gate(prior, current_layout)
-                self.gate_storage.add_gate(new_node, current_layout)
-                return
+                priors = priors[1:]
+                continue
 
-        
+            if self.apply_before(mapped_dag, prior, new_node):
+                print("Applying it first")
+                apply_on_dag(mapped_dag, new_node)
+                # Prior is still unapplied, so we leave it
+                return
+            print("Better to apply it after")
+            # Apply the prior first as we can't apply a rule
+            apply_on_dag(mapped_dag, prior)
+            self.gate_storage.remove_gate(prior, current_layout)
+            self.gate_storage.add_gate(new_node, current_layout)
+            return
 
         print("no matches so we just save it for now")
         self.gate_storage.add_gate(new_node, current_layout)
@@ -356,7 +354,36 @@ class SabreSwap(TransformationPass):
         )
 
     def zc_handle_swap_new(self, mapped_dag: DAGCircuit, swap_node: DAGOpNode, current_layout: Layout):
-        
+        # The way this should work is
+        # - if theres 2 prior gates, apply the one that comes before, and then try commutativity with the other
+        #   - if its a single qubit, essentially just do apply before or after
+        #   - if its a 2 qubit, it needs to be flipped if applied after
+
+        priors = self.get_prior(swap_node, current_layout)
+
+        for prior in priors:
+            print(f"handling prior gate on {get_qubits_from_layout(prior, current_layout)}")
+            if len(priors) == 2:  # we need to apply the other gate first
+                print("Applying 2nd gate first")
+                apply_on_dag(mapped_dag, prior)
+                self.gate_storage.remove_gate(prior, current_layout)
+                priors = priors[1:]
+                continue
+
+            if self.apply_before(mapped_dag, prior, swap_node):
+                print("Applying it first")
+                apply_on_dag(mapped_dag, swap_node)
+                # Prior is still unapplied, so we leave it
+                return
+            print("Better to apply it after")
+            # Apply the prior first as we can't apply a rule
+            apply_on_dag(mapped_dag, prior)
+            self.gate_storage.remove_gate(prior, current_layout)
+            self.gate_storage.add_gate(swap_node, current_layout)
+            return
+
+        print("no matches so we just save it for now")
+        self.gate_storage.add_gate(swap_node, current_layout)
 
     def zc_handle_swap(self, mapped_dag: DAGCircuit, swap_node: DAGOpNode, current_layout: Layout):
         # ! quick hack to quick apply the last gate in storage
@@ -512,7 +539,7 @@ class SabreSwap(TransformationPass):
             elif node.op.name == "swap":
                 # Swap can trade places with any single qubit gate, or a flipped version of a cnot gate
                 # self.zc_handle_swap(mapped_dag, node, current_layout)
-                self.zc_handle_cnot_new(mapped_dag, node, current_layout)
+                self.zc_handle_swap_new(mapped_dag, node, current_layout)
         elif len(node.qargs) == 1:
             # if node.op.name == "rz":
             #     self.zc_handle_rz(mapped_dag, node, current_layout)
