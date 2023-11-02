@@ -29,6 +29,8 @@ def main() -> None:
     benchmark_path = "./benchmarks/qiskit_circuit_benchmark/"
 
     for file in os.listdir(benchmark_path):
+        if "excitation" not in file:
+            continue
         print(f"Benchmarking {file}")
         # Load the circuit
         circuit_in = QuantumCircuit(
@@ -58,8 +60,6 @@ def main() -> None:
             # Display outcome
             print(f"Zach out: {zachc_output.properties()}")
             print(f"Sabre out: {sabre_output.properties()}")
-
-            quit()
 
 
 if __name__ == "__main__":
