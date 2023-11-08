@@ -9,5 +9,6 @@ rz(pi) q[0];
 cx q[5], q[2];
 cx q[5], q[3];
 rx(pi/2) q[3];
+h q[3];
 cx q[1], q[3];
 cx q[1], q[0];

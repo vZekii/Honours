@@ -1,5 +1,6 @@
-import networkx as nx
 from functools import wraps  # used for the drawing of the graphs
+
+import networkx as nx
 
 
 def output_architecture(func):
@@ -78,13 +79,7 @@ def qgrid(m, n):
 def rochester():
     g = nx.Graph()
     g.add_nodes_from(list(range(0, 53)))
-    I_1 = (
-        list(range(4))
-        + list(range(7, 15))
-        + list(range(19, 27))
-        + list(range(30, 38))
-        + list(range(42, 50))
-    )
+    I_1 = list(range(4)) + list(range(7, 15)) + list(range(19, 27)) + list(range(30, 38)) + list(range(42, 50))
 
     for i in I_1:
         g.add_edge(i, i + 1)
@@ -120,12 +115,7 @@ def rochester():
 def sycamore():
     g = nx.Graph()
     g.add_nodes_from(list(range(0, 54)))
-    I = (
-        list(range(6, 12))
-        + list(range(18, 24))
-        + list(range(30, 36))
-        + list(range(42, 48))
-    )
+    I = list(range(6, 12)) + list(range(18, 24)) + list(range(30, 36)) + list(range(42, 48))
     for i in I:
         for j in g.nodes():
             if j in I:
