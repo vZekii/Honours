@@ -5,7 +5,17 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: main.py (Integrated Terminal)",
+            "name": "Benchmarking",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmarking.py",
+            "console": "integratedTerminal",
+            "env": {},
+            "envFile": "${workspaceFolder}/.venv",
+            "justMyCode": true
+        },
+        {
+            "name": "ZC_Swap Testing",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",

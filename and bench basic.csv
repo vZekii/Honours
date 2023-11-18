@@ -1,0 +1,4 @@
+Filename,Architecture,Initial Depth,Sabre Depth,Zach Depth,Sabre Swaps,Zach Swaps,Zach Activations,Sabre Depth reduction,Zach Depth reduction,Sabre Time taken,Zach Time taken
+AND_10.qasm,['IBM_Q20'],2556,2623,2730,116,235,0,1.026,1.068,0.074,26.008
+AND_10.qasm,['Qgrid_20'],2556,2979,2956,502,679,0,1.165,1.156,0.068,55.952
+AND_11.qasm,['IBM_Q20'],5116,5305,5446,263,498,,1.037,1.065,0.147,125.653
